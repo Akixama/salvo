@@ -1,0 +1,7 @@
+# rpc.<domain> serves JSON-RPC, REST and /events; ws.<domain> serves Solana pubsub.
+rpc.{$SALVO_DOMAIN} {
+	reverse_proxy node:8899
+}
+ws.{$SALVO_DOMAIN} {
+	reverse_proxy node:8900
+}

@@ -1,0 +1,202 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { BRAND, PUBLIC_RPC_LABEL, PUBSUB_URL } from "@/lib/brand";
+import { CopyButton } from "@/components/ui";
+import { External } from "@/components/icons";
+
+export const metadata: Metadata = { title: "Docs" };
+
+const METHODS = [
+  ["getLatestBlockhash", "Blockhash of the newest merged block; valid for about 90 seconds"],
+  ["sendTransaction", "Base58 or base64; simulated first unless skipPreflight is set"],
+  ["simulateTransaction", "Runs against current state without changing it"],
+  ["getSignatureStatuses", "processed once a leader includes it, finalized once it is merged and executed"],
+  ["getTransaction", "json or base64 encoding, with fee, balances and logs"],
+  ["getBalance, getAccountInfo, getMultipleAccounts", "base64 or base58 account data"],
+  ["requestAirdrop", "2 SOL, same limits as the faucet"],
+  ["getSlot, getBlockHeight, getEpochInfo", "The slot is the position in the merged log"],
+  ["getMinimumBalanceForRentExemption, getFeeForMessage", "5,000 lamports per signature"],
+  ["getHealth, getVersion, getGenesisHash, isBlockhashValid", ""],
+  ["signatureSubscribe, slotSubscribe", "On the pubsub port (RPC port + 1)"],
+  ["salvo_getSealKeys, salvo_sendSealed", "Sealing keys, and send a sealed envelope (base64). Also GET /v1/seal and POST /v1/sealed"],
+];
+
+const FAQ = [
+  [
+    "Can a leader front-run my trade?",
+    "Not if you seal it. A sealed transaction is encrypted in your wallet, and its key is split so that any 4 of the 10 validators can open it and no 3 can. Validators only release their pieces after the block carrying it is final, when its place in the order can no longer change. The leader orders a blob it cannot read. What sealing does not hide: that you sent something, its size, and when.",
+  ],
+  [
+    "What does sealing cost?",
+    "Almost nothing in time: the key pieces arrive at about the moment the block is merged, so the reveal adds a few milliseconds. The catch is that the gateway cannot check a sealed transaction's fee before it opens, so sealed sends are limited to 30 a minute per connection, and there is no preflight simulation.",
+  ],
+  [
+    "Is this Solana?",
+    "No. It runs Solana transactions and programs, through the same runtime code (via LiteSVM), but the consensus is new and the net is separate. Nothing here touches Solana mainnet.",
+  ],
+  [
+    "Why is a block every 10 ms possible?",
+    "In a single-leader chain, the next leader has to hear about the last block before building on it, so block time is bounded by network delay. Gatling runs many independent instances on staggered timers. Each instance still waits for its own previous block, but there are 24 of them, so the merged log gets a new block every 240 / 24 = 10 ms.",
+  ],
+  [
+    "Is finality also 10 ms?",
+    "No. Each block still needs two rounds of votes that cross oceans, so finality is around a quarter of a second. The Net page shows the measured median and p90. What gets faster is how often a block can be proposed, which is what cuts the wait to get into one.",
+  ],
+  [
+    "What happens if a leader is down?",
+    "That instance's view times out after 400 ms and is skipped. The other instances keep going. The merged log waits at that cell until the skip is certified, then moves on. Try it in the Fault Lab.",
+  ],
+  [
+    "Can the same transaction land twice?",
+    "Two leaders can both put it in a block before either hears about the other. It runs once: the second copy is dropped by signature. The block page counts dropped copies.",
+  ],
+  [
+    "Why one server?",
+    "Running validators in five cities costs real money every month. The protocol does not care where its messages come from, so the net simulates the distances between cities on the wire using real-world one-way delays. The code is the same code that would run on separate machines.",
+  ],
+];
+
+export default function DocsPage() {
+  const rpc = PUBLIC_RPC_LABEL;
+  const ws = PUBSUB_URL;
+  const snippet = `import { Connection, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
+
+const connection = new Connection("${rpc}", { commitment: "finalized", wsEndpoint: "${ws}" });
+const me = Keypair.generate();
+const sig = await connection.requestAirdrop(me.publicKey, 2 * LAMPORTS_PER_SOL);
+await connection.confirmTransaction(sig, "finalized");
+console.log(await connection.getBalance(me.publicKey));`;
+  return (
+    <>
+      <div className="wrap page-head">
+        <h1 className="page-title">Docs</h1>
+        <p className="text-2" style={{ margin: 0, maxWidth: 640 }}>
+          Connect a wallet, the Solana CLI or @solana/web3.js, and what to expect from the net.
+        </p>
+      </div>
+      <div className="wrap stack">
+        <div className="grid-2">
+          <div className="card card-pad">
+            <div className="card-title" style={{ marginBottom: 12 }}>
+              Endpoints
+            </div>
+            <div className="label">JSON-RPC</div>
+            <div className="code">
+              <span>{rpc}</span>
+              <CopyButton text={rpc} />
+            </div>
+            <div className="label" style={{ marginTop: 16 }}>
+              Pubsub
+            </div>
+            <div className="code">
+              <span>{ws}</span>
+              <CopyButton text={ws} />
+            </div>
+          </div>
+          <div className="card card-pad">
+            <div className="card-title" style={{ marginBottom: 12 }}>
+              Solana CLI
+            </div>
+            {[`solana config set --url ${rpc}`, "solana airdrop 2", "solana transfer <ADDRESS> 0.5 --allow-unfunded-recipient"].map((c) => (
+              <div key={c} className="code" style={{ marginBottom: 8 }}>
+                <span>{c}</span>
+                <CopyButton text={c} />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-head">
+            <span className="card-title">@solana/web3.js</span>
+            <CopyButton text={snippet} />
+          </div>
+          <pre className="mono" style={{ margin: 0, padding: 20, fontSize: 13, lineHeight: "21px", overflowX: "auto", color: "var(--text-2)" }}>{snippet}</pre>
+        </div>
+
+        <div className="card">
+          <div className="card-head">
+            <span className="card-title">Supported methods</span>
+            <span className="muted" style={{ fontSize: 13 }}>
+              A subset of Solana&apos;s JSON-RPC
+            </span>
+          </div>
+          <div className="table-wrap">
+            <table className="t">
+              <tbody>
+                {METHODS.map(([m, d]) => (
+                  <tr key={m}>
+                    <td className="mono">{m}</td>
+                    <td className="text-2" style={{ whiteSpace: "normal" }}>
+                      {d}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-head">
+            <span className="card-title">Parameters</span>
+          </div>
+          <div className="kv">
+            <div>Validators</div>
+            <div>10, two each in Frankfurt, London, New York, Tokyo and Singapore (simulated). 7 matching votes make a certificate, so every certificate needs at least one vote from another continent.</div>
+            <div>Instances</div>
+            <div>24 Simplex instances. Instance k proposes at genesis + v × 240 ms + k × 10 ms.</div>
+            <div>Timeout</div>
+            <div>400 ms after a view&apos;s proposal time, validators vote to skip it.</div>
+            <div>Merge</div>
+            <div>Finalized blocks are read in (view, instance) order; skipped views are gaps.</div>
+            <div>Sealing</div>
+            <div>AES-256-GCM for the transaction, X25519 to lock each key piece to one validator, Shamir sharing with 4 of 10 needed. Pieces are released only after the block is finalized. Format and code: node/src/seal.rs and web/lib/seal.ts.</div>
+            <div>Execution</div>
+            <div>LiteSVM, signature checks on, fees 5,000 lamports per signature, blockhashes valid for about 90 seconds.</div>
+            <div>Gateway</div>
+            <div>An observer node in Frankfurt that sees every vote, merges, executes and serves the RPC.</div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-head">
+            <span className="card-title">Questions</span>
+          </div>
+          <div>
+            {FAQ.map(([q, a], i) => (
+              <details key={q} style={{ borderBottom: i < FAQ.length - 1 ? "1px solid var(--line)" : "none" }}>
+                <summary style={{ cursor: "pointer", padding: "14px 20px", fontSize: 15 }}>{q}</summary>
+                <div className="text-2" style={{ padding: "0 20px 16px", fontSize: 14, maxWidth: 760 }}>
+                  {a}
+                </div>
+              </details>
+            ))}
+          </div>
+        </div>
+
+        <div className="card card-pad" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <div>
+            <div className="card-title">{BRAND.paper.title}</div>
+            <div className="muted" style={{ fontSize: 13 }}>
+              {BRAND.paper.authors}. {BRAND.name} is an independent implementation; the merge rule follows their MIT-licensed prototype.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <a className="btn" href={BRAND.paper.url} target="_blank" rel="noreferrer">
+              Paper
+              <External size={14} />
+            </a>
+            <a className="btn btn-ghost" href={BRAND.paper.code} target="_blank" rel="noreferrer">
+              Prototype
+              <External size={14} />
+            </a>
+          </div>
+        </div>
+        <p className="muted" style={{ fontSize: 13 }}>
+          Something missing? The <Link href="/net" className="accent">Net page</Link> shows every number live.
+        </p>
+      </div>
+    </>
+  );
+}

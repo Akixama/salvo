@@ -1,0 +1,30 @@
+# Builds the salvo node for Linux (x86_64) on every push that touches node/, and publishes it
+# to the "node-latest" release so a server can download it without compiling.
+name: build-node
+on:
+  push:
+    branches: [main]
+    paths: ["node/**", ".github/workflows/build-node.yml"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: node
+      - name: Build
+        run: cargo build --release --locked --manifest-path node/Cargo.toml
+      - name: Test
+        run: cargo test --release --locked --manifest-path node/Cargo.toml
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp node/target/release/salvo salvo-linux-x86_64
+          gzip -9 -k salvo-linux-x86_64
+          gh release view node-latest >/dev/null 2>&1 || gh release create node-latest --title "Node build" --notes "Latest Linux build of the salvo node." --prerelease
+          gh release upload node-latest salvo-linux-x86_64.gz --clobber

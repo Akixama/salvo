@@ -1,0 +1,20 @@
+# Salvo on one Linux server: the node behind Caddy with TLS.
+# Run from this folder:  SALVO_DOMAIN=example.com docker compose up -d --build
+name: salvo
+services:
+  node:
+    build: { context: .., dockerfile: deploy/Dockerfile }
+    command: ["--seed", "${SALVO_SEED:-salvo-net}", "--traffic", "${SALVO_TRAFFIC:-25}"]
+    restart: unless-stopped
+  caddy:
+    image: caddy:2
+    ports: ["80:80", "443:443"]
+    environment:
+      SALVO_DOMAIN: ${SALVO_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+    depends_on: [node]
+    restart: unless-stopped
+volumes:
+  caddy:

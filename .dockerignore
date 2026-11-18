@@ -1,0 +1,5 @@
+web/
+**/target/
+**/node_modules/
+**/.next/
+.git/
