@@ -26,17 +26,20 @@ mkdir -p "$STATE_DIR"
 
 if ! curl -s -o /dev/null localhost:8899/health; then
   echo "Starting the node"
-  "$SALVO_BIN" up --bind 127.0.0.1 --trust-proxy --n 7 --traffic 10 --lab-k 8 --seed "$(cat "$STATE_DIR/seed")" > "$STATE_DIR/node.log" 2>&1 &
+  "$SALVO_BIN" up --bind 127.0.0.1 --trust-proxy --n 7 --traffic 10 --lab-k 8 --seed "$(cat "$STATE_DIR/seed")" > "$STATE_DIR/node.log" 2>&1 < /dev/null &
   for _ in $(seq 1 30); do curl -s -o /dev/null localhost:8899/health && break; sleep 1; done
 fi
 
+# Starts a quick tunnel and sets TUNNEL_URL. It is called directly, not inside $(...): in Git
+# Bash a background process started inside command substitution keeps it from returning.
 tunnel() {
   local port=$1 log="$STATE_DIR/tunnel-$1.log"
-  : > "$log"
-  "$CLOUDFLARED" tunnel --no-autoupdate --url "http://localhost:$port" > "$log" 2>&1 &
+  rm -f "$log"
+  "$CLOUDFLARED" tunnel --no-autoupdate --url "http://localhost:$port" > "$log" 2>&1 < /dev/null &
+  TUNNEL_URL=""
   for _ in $(seq 1 60); do
-    url=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$log" | head -1 || true)
-    [ -n "$url" ] && { echo "$url"; return; }
+    TUNNEL_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$log" 2>/dev/null | head -1 || true)
+    [ -n "$TUNNEL_URL" ] && return
     sleep 1
   done
   echo "No tunnel address for port $port; see $log" >&2
@@ -44,8 +47,10 @@ tunnel() {
 }
 
 echo "Opening tunnels"
-RPC=$(tunnel 8899)
-PUB=$(tunnel 8900)
+tunnel 8899
+RPC=$TUNNEL_URL
+tunnel 8900
+PUB=$TUNNEL_URL
 echo "RPC:    $RPC"
 echo "Pubsub: ${PUB/https/wss}"
 
