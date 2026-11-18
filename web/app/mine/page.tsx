@@ -9,6 +9,7 @@ import { ago, int, sol } from "@/lib/format";
 import { Addr, Ind } from "@/components/ui";
 import { TxMark } from "@/components/Marks";
 import { StatusPill, txStatus } from "@/components/StatusPill";
+import { BigNumbers, PageHero, Panel } from "@/components/PageHero";
 
 type Row = {
   signature: string;
@@ -51,34 +52,34 @@ function Mine() {
 
   return (
     <>
-      <div className="wrap page-head">
-        <h1 className="page-title">Mine</h1>
-        <p className="text-2" style={{ margin: 0 }}>
-          The balance and recent transactions of any address on this net.
-        </p>
-      </div>
-      <div className="wrap stack">
-        <form
-          className="card card-pad"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (input.trim()) go(input);
-          }}
-          style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}
-        >
-          <input className="input" style={{ flex: "1 1 320px" }} placeholder="A Solana address" value={input} onChange={(e) => setInput(e.target.value)} spellCheck={false} aria-label="Address" />
-          <button className="btn" type="submit" style={{ height: 44 }}>
-            Look up
-          </button>
-          {mine && mine !== addr && (
-            <button type="button" className="btn btn-ghost" style={{ height: 44 }} onClick={() => go(mine)}>
-              Use my browser wallet
+      <PageHero
+        eyebrow="Any address on this net"
+        title="Mine."
+        sub="The balance and recent transactions of an address, refreshed every two seconds."
+        aside={
+          <form
+            className="field-xl"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (input.trim()) go(input);
+            }}
+            style={{ flexWrap: "wrap" }}
+          >
+            <input className="input" style={{ flex: "1 1 260px" }} placeholder="A Solana address" value={input} onChange={(e) => setInput(e.target.value)} spellCheck={false} aria-label="Address" />
+            <button className="btn btn-primary" type="submit">
+              Look up
             </button>
-          )}
-        </form>
-
+            {mine && mine !== addr && (
+              <button type="button" className="btn btn-quiet" onClick={() => go(mine)}>
+                Use my browser wallet
+              </button>
+            )}
+          </form>
+        }
+      />
+      <div className="wrap page-body">
         {!addr && (
-          <div className="card empty">
+          <div className="empty" style={{ textAlign: "left", padding: 0 }}>
             Paste an address above{mine ? ", or use the wallet this browser already has" : ""}. No wallet yet?{" "}
             <Link href="/send" className="accent">
               Make one on the Send page →
@@ -90,48 +91,43 @@ function Mine() {
 
         {addr && !error && (
           <>
-            <div className="stats" style={{ gridTemplateColumns: "minmax(0, 2fr) repeat(2, minmax(0, 1fr))" }}>
-              <div className="stat">
-                <div className="stat-label">
-                  <TxMark id={addr} size={20} />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 32, flexWrap: "wrap" }}>
+              <div>
+                <div className="hn-l" style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 0 }}>
+                  <TxMark id={addr} size={22} />
                   {addr === mine ? "Your browser wallet" : "Address"}
                 </div>
-                <div style={{ margin: "12px 0 6px" }}>
-                  <Addr value={addr} head={8} tail={8} />
+                <div style={{ marginTop: 10 }}>
+                  <Addr value={addr} head={10} tail={10} />
                 </div>
-                <div className="stat-sub">{data ? `seen at slot ${int(data.tip)}` : "Loading"}</div>
               </div>
-              <div className="stat">
-                <div className="stat-label">Balance</div>
-                <div className="stat-value">
-                  {data ? sol(data.lamports) : "—"}
-                  <span className="unit">SOL</span>
-                </div>
-                <div className="stat-sub">test SOL, no value</div>
-              </div>
-              <div className="stat">
-                <div className="stat-label">Transactions</div>
-                <div className="stat-value">{data ? txs.length : "—"}</div>
-                <div className="stat-sub">{sealed ? `${sealed} sent sealed` : "latest 50 kept"}</div>
-              </div>
+              <BigNumbers
+                items={[
+                  { v: data ? sol(data.lamports) : "—", unit: "SOL", label: "balance, test SOL" },
+                  { v: data ? txs.length : "—", label: "recent transactions" },
+                  { v: data ? sealed : "—", label: "sent sealed" },
+                ]}
+              />
             </div>
 
-            <div className="card">
-              <div className="card-head">
-                <span className="card-title">Recent transactions</span>
-                {data && (
+            <Panel
+              title="Recent transactions"
+              action={
+                data && (
                   <span className="pill" style={{ gap: 8 }}>
                     <Ind kind="live" />
                     Refreshing every 2 s
                   </span>
-                )}
-              </div>
+                )
+              }
+              note={data ? `Seen at slot ${int(data.tip)}. The latest 50 are kept per address.` : undefined}
+            >
               {!data ? (
-                <div className="empty" style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+                <div className="empty" style={{ display: "flex", gap: 10 }}>
                   <Ind kind="spin" /> Loading
                 </div>
               ) : txs.length === 0 ? (
-                <div className="empty">
+                <div className="empty" style={{ textAlign: "left" }}>
                   Nothing here yet.{" "}
                   <Link href="/faucet" className="accent">
                     Get test SOL →
@@ -177,7 +173,7 @@ function Mine() {
                   </table>
                 </div>
               )}
-            </div>
+            </Panel>
           </>
         )}
       </div>

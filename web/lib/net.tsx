@@ -237,11 +237,14 @@ class NetStore {
   private emit() {
     if (this.emitScheduled) return;
     this.emitScheduled = true;
-    requestAnimationFrame(() => {
+    const run = () => {
       this.emitScheduled = false;
       this.version++;
       this.listeners.forEach((l) => l());
-    });
+    };
+    // A short timer, not an animation frame: frames pause in background and embedded views,
+    // and the net's data arrives in 100 ms batches anyway.
+    setTimeout(run, 30);
   }
 
   subscribe = (l: Listener) => {
@@ -288,7 +291,26 @@ export function useNetStore() {
   return useContext(Ctx);
 }
 
-/** Re-render on every update (throttled to animation frames). */
+// What the server renders: no connection, no data. Components see this until they have mounted,
+// so the first client render always matches the server HTML, even for late-hydrating sections.
+const BEFORE_MOUNT: Record<string, unknown> = {
+  stats: null,
+  connected: false,
+  everConnected: false,
+  blocks: [],
+  instances: [],
+  validators: [],
+  activity: [],
+  unseen: 0,
+};
+
+function useMounted() {
+  const [m, setM] = useState(false);
+  useEffect(() => setM(true), []);
+  return m;
+}
+
+/** Re-render on every update (batched to a short timer). */
 export function useNet() {
   const s = useContext(Ctx);
   useSyncExternalStore(
@@ -296,6 +318,8 @@ export function useNet() {
     () => s.version,
     () => 0
   );
+  const mounted = useMounted();
+  if (!mounted) return new Proxy(s, { get: (t, k) => (typeof k === "string" && k in BEFORE_MOUNT ? BEFORE_MOUNT[k] : (t as any)[k]) }) as NetStore;
   return s;
 }
 

@@ -2,7 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { BlocksTable, LiveBadge, LiveDiagramCard, LiveStats, matchesFilter, type BlockFilter } from "@/components/Live";
+import { BlocksTable, LiveBadge, LiveDiagramCard, matchesFilter, type BlockFilter } from "@/components/Live";
+import { BigNumbers, PageHero, Panel } from "@/components/PageHero";
+import CountUp from "@/components/bits/CountUp";
 import { FinalityChart } from "@/components/FinalityChart";
 import { useNet, useNow, usePoll } from "@/lib/net";
 import { CITY_NAMES, int, ms, short } from "@/lib/format";
@@ -20,10 +22,10 @@ function Search() {
         if (/^\d+$/.test(v)) router.push(`/net/block/${v}`);
         else router.push(`/tx/${v}`);
       }}
-      style={{ display: "flex", gap: 8, width: "100%", maxWidth: 520 }}
+      className="field-xl"
     >
       <input className="input" placeholder="Slot number or transaction signature" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" />
-      <button className="btn" type="submit" style={{ height: 44 }}>
+      <button className="btn btn-primary" type="submit">
         Look up
       </button>
     </form>
@@ -147,66 +149,56 @@ export default function NetPage() {
   const s = net.stats;
   return (
     <>
-      <div className="wrap page-head">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 24, flexWrap: "wrap" }}>
-          <div>
-            <h1 className="page-title">{s?.name ?? "The net"}</h1>
-            <p className="text-2" style={{ margin: 0 }}>
-              {s
-                ? `${s.validators} validators, ${s.instances} instances, a view every ${s.deltaMs} ms per instance. Views time out after ${s.timeoutMs} ms.`
-                : "Connecting to the net."}
-            </p>
-          </div>
-          <Search />
-        </div>
-      </div>
-      <div className="wrap stack">
-        <LiveStats />
+      <PageHero
+        eyebrow={s?.name ?? "The net"}
+        title={
+          <>
+            The net,
+            <br />
+            live.
+          </>
+        }
+        sub={
+          s
+            ? `${s.validators} validators run ${s.instances} instances on staggered timers, a view every ${s.deltaMs} ms each. Everything below is measured as it happens.`
+            : "Connecting to the net."
+        }
+        aside={<Search />}
+      />
+      <div className="wrap page-body">
+        <BigNumbers
+          items={[
+            { v: s?.gapMs.p50 != null ? <CountUp to={s.gapMs.p50} decimals={1} duration={0.6} trigger="load" /> : "—", unit: "ms", label: `between blocks · target ${s ? ms(s.targetGapMs, 1) : "—"} ms` },
+            { v: s?.blockFinalityMs.p50 != null ? <CountUp to={Math.round(s.blockFinalityMs.p50)} duration={0.6} trigger="load" /> : "—", unit: "ms", label: `block to final · p90 ${s ? ms(s.blockFinalityMs.p90, 0) : "—"} ms` },
+            { v: s?.txFinalityMs.p50 != null ? <CountUp to={Math.round(s.txFinalityMs.p50)} duration={0.6} trigger="load" /> : "—", unit: "ms", label: "transaction, sent to run" },
+            { v: s ? <CountUp to={Math.round(s.blocksPerSecond)} duration={0.6} trigger="load" /> : "—", label: `blocks a second · ${s ? int(s.skippedViews) : "—"} views skipped` },
+          ]}
+        />
         <LiveDiagramCard rowHeight={11} />
-        <div className="split">
-          <div className="card">
-            <div className="card-head" style={{ flexWrap: "wrap" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span className="card-title">Merged log</span>
-                <LiveBadge />
-              </div>
-              <FilterTabs value={filter} onChange={setFilter} />
-            </div>
-            <BlocksTable limit={16} compact filter={filter} />
-            <div className="muted" style={{ fontSize: 12, padding: "10px 20px", borderTop: "1px solid var(--line)" }}>
-              Hover the list to pause it. Counts are over the latest {net.blocks.length} blocks.
-            </div>
-          </div>
-          <div className="card">
-            <div className="card-head">
-              <span className="card-title">Block finality</span>
-              <span className="muted" style={{ fontSize: 13 }}>
-                last {latency?.blockFinalityMs.length ?? 0} blocks
+        <div className="split" style={{ gap: 48 }}>
+          <Panel
+            title={
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 12 }}>
+                Merged log <LiveBadge />
               </span>
-            </div>
-            <div style={{ padding: 20 }}>
+            }
+            action={<FilterTabs value={filter} onChange={setFilter} />}
+            note={`Hover the list to pause it. Counts are over the latest ${net.blocks.length} blocks.`}
+          >
+            <BlocksTable limit={16} compact filter={filter} />
+          </Panel>
+          <Panel title="Block finality" action={<span className="muted" style={{ fontSize: 13 }}>last {latency?.blockFinalityMs.length ?? 0} blocks</span>}>
+            <div style={{ paddingTop: 20 }}>
               <FinalityChart samples={latency?.blockFinalityMs ?? []} />
             </div>
-          </div>
+          </Panel>
         </div>
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title">Instances</span>
-            <span className="muted" style={{ fontSize: 13 }}>
-              The ring empties until that instance&apos;s next proposal
-            </span>
-          </div>
+        <Panel title="Instances" action={<span className="muted" style={{ fontSize: 13 }}>The ring empties until that instance&apos;s next proposal</span>}>
           <Instances />
-        </div>
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title">Validators</span>
-            <span className="muted" style={{ fontSize: 13 }}>
-              Gateway in Frankfurt
-            </span>
-          </div>
+        </Panel>
+        <Panel title="Validators" action={<span className="muted" style={{ fontSize: 13 }}>Gateway in Frankfurt</span>}>
           <Validators />
-        </div>
+        </Panel>
       </div>
     </>
   );

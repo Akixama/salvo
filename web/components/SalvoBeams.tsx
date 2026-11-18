@@ -8,7 +8,7 @@ import { useNetStore } from "@/lib/net";
  * line, the merged log. A pulse runs down beam k whenever instance k is due to propose, on the
  * net's real schedule, and a pulse runs along the merged line for every block that enters the log.
  */
-export function SalvoBeams() {
+export function SalvoBeams({ variant = "hero" }: { variant?: "hero" | "header" }) {
   const store = useNetStore();
   const canvas = useRef<HTMLCanvasElement>(null);
 
@@ -57,16 +57,19 @@ export function SalvoBeams() {
     });
 
     const K = () => store.stats?.instances ?? 24;
-    const focal = () => ({ x: w < 640 ? w * 0.56 : w * 0.5, y: h * (w < 640 ? 0.9 : 0.86) });
+    // The hero meets in the middle; page headers meet on the right, leaving the left calm for text.
+    const header = variant === "header";
+    const focal = () =>
+      header ? { x: w < 640 ? w * 0.7 : w * 0.74, y: h * 0.94 } : { x: w < 640 ? w * 0.56 : w * 0.5, y: h * (w < 640 ? 0.9 : 0.86) };
 
     // Beam k: a cubic curve from the left edge into the focal point.
     const beamPoint = (k: number, t: number) => {
       const n = K();
       const f = focal();
-      const spread = h * 0.62;
+      const spread = h * (header ? 0.9 : 0.62);
       const y0 = f.y - spread * 0.55 + (spread * k) / Math.max(1, n - 1);
-      const x0 = -w * 0.04;
-      const c1x = w * 0.22;
+      const x0 = header ? w * 0.28 : -w * 0.04;
+      const c1x = header ? w * 0.46 : w * 0.22;
       const c1y = y0;
       const c2x = f.x - w * 0.16;
       const c2y = f.y;
@@ -88,6 +91,8 @@ export function SalvoBeams() {
       const f = focal();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
+      // Page headers carry the motif more quietly than the home hero.
+      cv.style.opacity = header ? "0.7" : "1";
 
       // The horizon glow where the beams meet.
       const hg = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, Math.max(w, h) * 0.55);
@@ -186,7 +191,7 @@ export function SalvoBeams() {
       ro.disconnect();
       offBlock();
     };
-  }, [store]);
+  }, [store, variant]);
 
   return <canvas ref={canvas} className="beams" aria-hidden="true" />;
 }

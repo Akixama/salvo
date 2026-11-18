@@ -3,6 +3,7 @@ import Link from "next/link";
 import { BRAND, PUBLIC_RPC_LABEL, PUBSUB_URL } from "@/lib/brand";
 import { CopyButton } from "@/components/ui";
 import { Fact } from "@/components/Facts";
+import { PageHero, Panel } from "@/components/PageHero";
 import { External } from "@/components/icons";
 
 export const metadata: Metadata = { title: "Docs" };
@@ -71,24 +72,27 @@ await connection.confirmTransaction(sig, "finalized");
 console.log(await connection.getBalance(me.publicKey));`;
   return (
     <>
-      <div className="wrap page-head">
-        <h1 className="page-title">Docs</h1>
-        <p className="text-2" style={{ margin: 0, maxWidth: 640 }}>
-          Connect a wallet, the Solana CLI or @solana/web3.js, and what to expect from the net.
-        </p>
-      </div>
-      <div className="wrap stack">
-        <div className="grid-2">
-          <div className="card card-pad">
-            <div className="card-title" style={{ marginBottom: 12 }}>
-              Endpoints
+      <PageHero
+        eyebrow="Docs"
+        title={
+          <>
+            Point any
+            <br />
+            client at it.
+          </>
+        }
+        sub="Connect a wallet, the Solana CLI or @solana/web3.js, and what to expect from the net."
+        live={false}
+        aside={
+          <div style={{ display: "grid", gap: 10 }}>
+            <div className="hn-l" style={{ marginTop: 0 }}>
+              JSON-RPC
             </div>
-            <div className="label">JSON-RPC</div>
             <div className="code">
               <span>{rpc}</span>
               <CopyButton text={rpc} />
             </div>
-            <div className="label" style={{ marginTop: 16 }}>
+            <div className="hn-l" style={{ marginTop: 8 }}>
               Pubsub
             </div>
             <div className="code">
@@ -96,34 +100,28 @@ console.log(await connection.getBalance(me.publicKey));`;
               <CopyButton text={ws} />
             </div>
           </div>
-          <div className="card card-pad">
-            <div className="card-title" style={{ marginBottom: 12 }}>
-              Solana CLI
+        }
+      />
+      <div className="wrap page-body">
+        <div className="open-grid">
+          <Panel title="Solana CLI">
+            <div style={{ display: "grid", gap: 8, paddingTop: 20 }}>
+              {[`solana config set --url ${rpc}`, "solana airdrop 2", "solana transfer <ADDRESS> 0.5 --allow-unfunded-recipient"].map((c) => (
+                <div key={c} className="code">
+                  <span>{c}</span>
+                  <CopyButton text={c} />
+                </div>
+              ))}
             </div>
-            {[`solana config set --url ${rpc}`, "solana airdrop 2", "solana transfer <ADDRESS> 0.5 --allow-unfunded-recipient"].map((c) => (
-              <div key={c} className="code" style={{ marginBottom: 8 }}>
-                <span>{c}</span>
-                <CopyButton text={c} />
-              </div>
-            ))}
-          </div>
+          </Panel>
+          <Panel title="@solana/web3.js" action={<CopyButton text={snippet} />}>
+            <pre className="code mono" style={{ display: "block", marginTop: 20, fontSize: 13, lineHeight: "21px", whiteSpace: "pre", color: "var(--text-2)" }}>
+              {snippet}
+            </pre>
+          </Panel>
         </div>
 
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title">@solana/web3.js</span>
-            <CopyButton text={snippet} />
-          </div>
-          <pre className="mono" style={{ margin: 0, padding: 20, fontSize: 13, lineHeight: "21px", overflowX: "auto", color: "var(--text-2)" }}>{snippet}</pre>
-        </div>
-
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title">Supported methods</span>
-            <span className="muted" style={{ fontSize: 13 }}>
-              A subset of Solana&apos;s JSON-RPC
-            </span>
-          </div>
+        <Panel title="Supported methods" action={<span className="muted" style={{ fontSize: 13 }}>A subset of Solana&apos;s JSON-RPC</span>}>
           <div className="table-wrap">
             <table className="t">
               <tbody>
@@ -138,67 +136,67 @@ console.log(await connection.getBalance(me.publicKey));`;
               </tbody>
             </table>
           </div>
-        </div>
+        </Panel>
 
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title">Parameters</span>
-          </div>
+        <Panel title="Parameters">
           <div className="kv">
             <div>Validators</div>
             <div>
               <Fact k="n" /> spread across Frankfurt, London, New York, Tokyo and Singapore (simulated). <Fact k="quorum" /> matching votes make a certificate, and no single region holds that many, so every certificate crosses an ocean.
             </div>
             <div>Instances</div>
-            <div>24 Simplex instances. Instance k proposes at genesis + v × 240 ms + k × 10 ms.</div>
+            <div>
+              <Fact k="k" /> Simplex instances. Instance k proposes at genesis + v × <Fact k="delta" /> ms + k × <Fact k="gap" /> ms.
+            </div>
             <div>Timeout</div>
-            <div>400 ms after a view&apos;s proposal time, validators vote to skip it.</div>
+            <div>
+              <Fact k="timeout" /> ms after a view&apos;s proposal time, validators vote to skip it.
+            </div>
             <div>Merge</div>
             <div>Finalized blocks are read in (view, instance) order; skipped views are gaps.</div>
             <div>Sealing</div>
-            <div>AES-256-GCM for the transaction, X25519 to lock each key piece to one validator, Shamir sharing with <Fact k="threshold" /> of <Fact k="n" /> needed. Pieces are released only after the block is finalized. Format and code: node/src/seal.rs and web/lib/seal.ts.</div>
+            <div>
+              AES-256-GCM for the transaction, X25519 to lock each key piece to one validator, Shamir sharing with <Fact k="threshold" /> of <Fact k="n" /> needed. Pieces are released only after the block is finalized. Format and code: node/src/seal.rs and web/lib/seal.ts.
+            </div>
             <div>Execution</div>
             <div>LiteSVM, signature checks on, fees 5,000 lamports per signature, blockhashes valid for about 90 seconds.</div>
             <div>Gateway</div>
             <div>An observer node in Frankfurt that sees every vote, merges, executes and serves the RPC.</div>
           </div>
-        </div>
+        </Panel>
 
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title">Questions</span>
-          </div>
+        <Panel title="Questions">
           <div>
             {FAQ.map(([q, a], i) => (
-              <details key={q} style={{ borderBottom: i < FAQ.length - 1 ? "1px solid var(--line)" : "none" }}>
-                <summary style={{ cursor: "pointer", padding: "14px 20px", fontSize: 15 }}>{q}</summary>
-                <div className="text-2" style={{ padding: "0 20px 16px", fontSize: 14, maxWidth: 760 }}>
+              <details key={q} className="faq" style={{ borderBottom: i < FAQ.length - 1 ? "1px solid var(--line)" : "none" }}>
+                <summary>{q}</summary>
+                <div className="text-2" style={{ padding: "0 0 20px", fontSize: 15, lineHeight: 1.6, maxWidth: 760 }}>
                   {a}
                 </div>
               </details>
             ))}
           </div>
-        </div>
+        </Panel>
 
-        <div className="card card-pad" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-          <div>
-            <div className="card-title">{BRAND.paper.title}</div>
-            <div className="muted" style={{ fontSize: 13 }}>
-              {BRAND.paper.authors}. {BRAND.name} is an independent implementation; the merge rule follows their MIT-licensed prototype.
+        <Panel title="The paper">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap", paddingTop: 20 }}>
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 600 }}>{BRAND.paper.title}</div>
+              <div className="muted" style={{ fontSize: 14, marginTop: 4 }}>
+                {BRAND.paper.authors}. {BRAND.name} is an independent implementation; the merge rule follows their MIT-licensed prototype.
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 20 }}>
+              <a className="link-arrow" href={BRAND.paper.url} target="_blank" rel="noreferrer">
+                Paper <External size={14} />
+              </a>
+              <a className="link-arrow" href={BRAND.paper.code} target="_blank" rel="noreferrer">
+                Prototype <External size={14} />
+              </a>
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <a className="btn" href={BRAND.paper.url} target="_blank" rel="noreferrer">
-              Paper
-              <External size={14} />
-            </a>
-            <a className="btn btn-ghost" href={BRAND.paper.code} target="_blank" rel="noreferrer">
-              Prototype
-              <External size={14} />
-            </a>
-          </div>
-        </div>
-        <p className="muted" style={{ fontSize: 13 }}>
+        </Panel>
+        <p className="muted" style={{ fontSize: 13, margin: 0 }}>
           Something missing? The <Link href="/net" className="accent">Net page</Link> shows every number live.
         </p>
       </div>

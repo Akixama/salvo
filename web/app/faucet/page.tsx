@@ -5,6 +5,16 @@ import { useState } from "react";
 import { api } from "@/lib/net";
 import { short } from "@/lib/format";
 import { Ind } from "@/components/ui";
+import { PageHero, Panel } from "@/components/PageHero";
+import { toast } from "@/components/Activity";
+
+const RULES: [string, string][] = [
+  ["Per grant", "2 SOL"],
+  ["Per address", "3 a day"],
+  ["Per connection", "10 a day"],
+  ["Lasts until", "the net restarts"],
+  ["Worth", "nothing: test SOL only works on this net"],
+];
 
 export default function FaucetPage() {
   const [address, setAddress] = useState("");
@@ -20,6 +30,7 @@ export default function FaucetPage() {
     try {
       const r = await api<{ signature: string }>("/v1/faucet", { method: "POST", body: JSON.stringify({ address: address.trim() }) });
       setResult(r);
+      toast({ title: "2 test SOL on the way", body: `to ${short(address.trim())}`, href: `/tx/${r.signature}` });
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -29,55 +40,63 @@ export default function FaucetPage() {
 
   return (
     <>
-      <div className="wrap page-head">
-        <h1 className="page-title">Faucet</h1>
-        <p className="text-2" style={{ margin: 0 }}>
-          2 test SOL to any Solana address. Test SOL only works on this net and has no value.
-        </p>
-      </div>
-      <div className="wrap split">
-        <form className="card card-pad" onSubmit={submit}>
-          <label className="label" htmlFor="addr">
-            Address
-          </label>
-          <input id="addr" className="input" placeholder="A Solana address, for example from Phantom or solana-keygen" value={address} onChange={(e) => setAddress(e.target.value)} spellCheck={false} />
-          <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 16, flexWrap: "wrap" }}>
-            <button className="btn btn-primary btn-lg" disabled={busy || address.trim().length < 32}>
-              {busy ? "Sending" : "Send 2 test SOL"}
-            </button>
-            <span className="muted" style={{ fontSize: 13 }}>
-              No wallet? <Link href="/send" className="accent">Use one in the browser</Link>
-            </span>
-          </div>
-          {result && (
-            <div className="notice" style={{ marginTop: 16 }}>
-              <Ind kind="done" />
-              <span>
-                Sent. <Link href={`/tx/${result.signature}`} className="accent mono">{short(result.signature, 8, 8)}</Link> should be final in well under a second.
-              </span>
+      <PageHero
+        eyebrow="Faucet"
+        title={
+          <>
+            Test SOL,
+            <br />
+            free.
+          </>
+        }
+        sub="2 test SOL to any Solana address, final in well under a second."
+        aside={
+          <form onSubmit={submit}>
+            <div className="field-xl">
+              <input className="input" placeholder="A Solana address" value={address} onChange={(e) => setAddress(e.target.value)} spellCheck={false} aria-label="Address" />
+              <button className="btn btn-accent" disabled={busy || address.trim().length < 32}>
+                {busy ? "Sending" : "Send 2 SOL"}
+              </button>
             </div>
-          )}
-          {error && (
-            <div className="notice" style={{ marginTop: 16, color: "var(--neg)", borderColor: "rgba(229,72,77,0.25)" }}>
-              {error}
+            <div className="muted" style={{ fontSize: 13, marginTop: 12 }}>
+              No wallet?{" "}
+              <Link href="/send" className="accent">
+                Use one in the browser →
+              </Link>
             </div>
-          )}
-        </form>
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title">Rules</span>
+            {result && (
+              <div className="notice" style={{ marginTop: 16 }}>
+                <Ind kind="done" />
+                <span>
+                  Sent.{" "}
+                  <Link href={`/tx/${result.signature}`} className="accent mono">
+                    {short(result.signature, 8, 8)}
+                  </Link>
+                </span>
+              </div>
+            )}
+            {error && (
+              <div className="notice" style={{ marginTop: 16, color: "var(--neg)", borderColor: "rgba(229,72,77,0.25)" }}>
+                {error}
+              </div>
+            )}
+          </form>
+        }
+      />
+      <div className="wrap page-body">
+        <Panel title="Rules">
+          <div className="rows" style={{ marginTop: 0, borderTop: "none" }}>
+            {RULES.map(([k, v], i) => (
+              <div key={k} className="row">
+                <span className="row-n mono">{String(i + 1).padStart(2, "0")}</span>
+                <span className="row-t" style={{ fontSize: 18 }}>
+                  {k}
+                </span>
+                <span className="row-b">{v}</span>
+              </div>
+            ))}
           </div>
-          <div className="kv" style={{ gridTemplateColumns: "1fr auto" }}>
-            <div>Per grant</div>
-            <div className="mono">2 SOL</div>
-            <div>Per address</div>
-            <div className="mono">3 a day</div>
-            <div>Per connection</div>
-            <div className="mono">10 a day</div>
-            <div>Lasts until</div>
-            <div>the net restarts</div>
-          </div>
-        </div>
+        </Panel>
       </div>
     </>
   );

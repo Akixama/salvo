@@ -9,6 +9,7 @@ import { Addr, Ind } from "@/components/ui";
 import { TxTrail, type TxRec } from "@/components/TxTrail";
 import { seal, type SealKeys } from "@/lib/seal";
 import { toast } from "@/components/Activity";
+import { BigNumbers, PageHero, Panel } from "@/components/PageHero";
 import { Refresh } from "@/components/icons";
 
 const KEY = "salvo-burner-v1";
@@ -181,43 +182,38 @@ export default function SendPage() {
   const empty = balance === 0;
   return (
     <>
-      <div className="wrap page-head">
-        <h1 className="page-title">Send a transaction</h1>
-        <p className="text-2" style={{ margin: 0, maxWidth: 640 }}>
-          A throwaway wallet lives in this browser. Fill it from the faucet, send a transfer, and watch each stage land with its time.
-        </p>
-      </div>
-      <div className="wrap split">
-        <div className="stack">
-          <div className="card card-pad">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
-              <div>
-                <div className="label">Your browser wallet</div>
-                {address ? <Addr value={address} head={6} tail={6} /> : <span className="muted">Creating a key</span>}
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div className="label">Balance</div>
-                <div style={{ fontSize: 28, lineHeight: 1, fontWeight: 500 }} className="num">
-                  {balance == null ? "—" : sol(balance)}
-                  <span className="muted" style={{ fontSize: 14, marginLeft: 6 }}>
-                    SOL
-                  </span>
-                </div>
-              </div>
+      <PageHero
+        eyebrow="A wallet in this browser"
+        title={
+          <>
+            Send a
+            <br />
+            transaction.
+          </>
+        }
+        sub="Fill the wallet from the faucet, seal a transfer, and watch each stage land with its time."
+        aside={
+          <div>
+            <div className="hn-l" style={{ marginTop: 0, marginBottom: 10 }}>
+              Your browser wallet {address ? <Addr value={address} head={6} tail={6} /> : <span className="muted">creating a key</span>}
             </div>
+            <BigNumbers items={[{ v: balance == null ? "—" : sol(balance), unit: "SOL", label: "balance, test SOL" }]} />
             <div style={{ display: "flex", gap: 8, marginTop: 20, flexWrap: "wrap" }}>
-              <button className={empty ? "btn btn-accent" : "btn"} onClick={faucet} disabled={busy || !me}>
+              <button className={empty ? "btn btn-accent btn-xl" : "btn btn-quiet btn-xl"} onClick={faucet} disabled={busy || !me}>
                 Get 2 test SOL
               </button>
-              <button className="btn btn-ghost" onClick={refresh} aria-label="Refresh balance">
+              <button className="btn btn-ghost btn-xl" onClick={refresh} aria-label="Refresh balance">
                 <Refresh size={16} />
                 Refresh
               </button>
             </div>
           </div>
-
-          <div className="card card-pad">
-            <div className="grid-2" style={{ gridTemplateColumns: "minmax(0, 1fr) 160px" }}>
+        }
+      />
+      <div className="wrap split" style={{ paddingTop: 48, gap: 48 }}>
+        <div className="stack" style={{ gap: 56 }}>
+          <Panel title="Transfer">
+            <div className="grid-2" style={{ gridTemplateColumns: "minmax(0, 1fr) 160px", paddingTop: 20 }}>
               <div>
                 <label className="label" htmlFor="to">
                   To
@@ -242,7 +238,7 @@ export default function SendPage() {
               </span>
             </label>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
-              <button className="btn btn-primary btn-lg" onClick={send} disabled={busy || !me || empty}>
+              <button className="btn btn-accent btn-xl" onClick={send} disabled={busy || !me || empty}>
                 {sealed ? "Seal and send" : "Send"}
               </button>
               <span className="muted" style={{ fontSize: 13 }}>
@@ -254,13 +250,10 @@ export default function SendPage() {
                 {error}
               </div>
             )}
-          </div>
+          </Panel>
 
           {history.length > 0 && (
-            <div className="card">
-              <div className="card-head">
-                <span className="card-title">Sent from this browser</span>
-              </div>
+            <Panel title="Sent from this browser">
               <div className="table-wrap">
                 <table className="t">
                   <tbody>
@@ -276,7 +269,7 @@ export default function SendPage() {
                   </tbody>
                 </table>
               </div>
-            </div>
+            </Panel>
           )}
         </div>
 

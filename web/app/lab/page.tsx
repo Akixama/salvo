@@ -5,6 +5,7 @@ import { api, usePoll } from "@/lib/net";
 import { ms } from "@/lib/format";
 import { Ind } from "@/components/ui";
 import { Play } from "@/components/icons";
+import { PageHero, Panel } from "@/components/PageHero";
 
 type Scenario = { id: string; title: string; fault: string; expect: string };
 type Phase = { blocks: number; blocksPerSecond: number; gapP50: number | null; gapMax: number | null; finalityP50: number | null; finalityMax: number | null; transactions: number };
@@ -133,13 +134,19 @@ export default function LabPage() {
   const d = cat?.durations;
   return (
     <>
-      <div className="wrap page-head">
-        <h1 className="page-title">Fault Lab</h1>
-        <p className="text-2" style={{ margin: 0, maxWidth: 720 }}>
-          Each run starts a separate net of 10 validators and {d ? `${d.settleSeconds + d.faultSeconds + d.recoverSeconds}` : "15"} seconds of life: {d?.settleSeconds ?? 4} to settle, {d?.faultSeconds ?? 6} with the fault on, {d?.recoverSeconds ?? 5} to recover. The live net is not touched. One run at a time.
-        </p>
-      </div>
-      <div className="wrap stack">
+      <PageHero
+        eyebrow="Fault Lab"
+        title={
+          <>
+            Try to
+            <br />
+            break it.
+          </>
+        }
+        sub={`Each run starts a separate net of 10 validators for ${d ? d.settleSeconds + d.faultSeconds + d.recoverSeconds : 15} seconds: ${d?.settleSeconds ?? 4} to settle, ${d?.faultSeconds ?? 6} with the fault on, ${d?.recoverSeconds ?? 5} to recover. The live net is not touched.`}
+        live={false}
+      />
+      <div className="wrap page-body">
         {run && (
           <div className="card" style={running ? { boxShadow: "0 0 0 1px rgba(245,165,36,0.35)" } : undefined}>
             <div className="card-head" style={{ flexWrap: "wrap" }}>
@@ -183,43 +190,33 @@ export default function LabPage() {
           </div>
         )}
         {(startErr || error) && <div className="notice" style={{ color: "var(--neg)" }}>{startErr || "The lab cannot be reached right now."}</div>}
-        <div className="grid-3">
-          {(cat?.scenarios ?? []).map((s) => (
-            <div key={s.id} className="card card-pad" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 16, fontWeight: 500 }}>{s.title}</div>
-              <div style={{ fontSize: 14 }}>
-                <div className="muted" style={{ fontSize: 12, marginBottom: 4 }} >
-                  Fault
-                </div>
-                <div className="text-2">{s.fault}</div>
-              </div>
-              <div style={{ fontSize: 14, flex: 1 }}>
-                <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>
-                  What should happen
-                </div>
-                <div className="text-2">{s.expect}</div>
-              </div>
-              <button className="btn" onClick={() => start(s.id)} disabled={!!running || cat?.busy}>
+        <Panel title="Scenarios" action={<span className="muted" style={{ fontSize: 13 }}>One run at a time, six an hour per connection</span>}>
+          {(cat?.scenarios ?? []).map((sc, i) => (
+            <div key={sc.id} className="scenario-row">
+              <span className="row-n mono">{String(i + 1).padStart(2, "0")}</span>
+              <span>
+                <span className="row-t" style={{ display: "block" }}>
+                  {sc.title}
+                </span>
+                <span className="muted" style={{ fontSize: 13 }}>
+                  {sc.fault}
+                </span>
+              </span>
+              <span className="row-b">{sc.expect}</span>
+              <button className="btn" onClick={() => start(sc.id)} disabled={!!running || cat?.busy}>
                 <Play size={14} />
                 Run it
               </button>
             </div>
           ))}
-          {!cat &&
-            [0, 1, 2].map((i) => (
-              <div key={i} className="card card-pad" style={{ height: 240, display: "grid", placeItems: "center" }}>
-                <Ind kind="spin" />
-              </div>
-            ))}
-        </div>
-        {cat && cat.recent.length > 0 && (
-          <div className="card">
-            <div className="card-head">
-              <span className="card-title">Recent runs</span>
-              <span className="muted" style={{ fontSize: 13 }}>
-                anyone&apos;s, newest first
-              </span>
+          {!cat && (
+            <div className="empty" style={{ display: "flex", gap: 10 }}>
+              <Ind kind="spin" /> Loading the scenarios
             </div>
+          )}
+        </Panel>
+        {cat && cat.recent.length > 0 && (
+          <Panel title="Recent runs" action={<span className="muted" style={{ fontSize: 13 }}>anyone&apos;s, newest first</span>}>
             <div className="table-wrap">
               <table className="t">
                 <tbody>
@@ -233,7 +230,7 @@ export default function LabPage() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </Panel>
         )}
       </div>
     </>

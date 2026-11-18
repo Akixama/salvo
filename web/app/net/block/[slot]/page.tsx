@@ -6,6 +6,8 @@ import { usePoll } from "@/lib/net";
 import { CITY_NAMES, int, ms, short, sol } from "@/lib/format";
 import { Addr, Ind } from "@/components/ui";
 import { ArrowRight } from "@/components/icons";
+import { BigNumbers, PageHero, Panel } from "@/components/PageHero";
+import { BlockMark, TxMark } from "@/components/Marks";
 
 type Block = {
   slot: number;
@@ -63,24 +65,24 @@ export default function BlockPage({ params }: { params: Promise<{ slot: string }
   const n = Number(slot);
   if (error)
     return (
-      <div className="wrap page-head">
-        <h1 className="page-title">Slot {slot}</h1>
-        <div className="notice">{error}</div>
-        <div style={{ marginTop: 16 }}>
-          <Link href="/net" className="btn">
-            Back to the net
-          </Link>
-        </div>
-      </div>
+      <PageHero live={false} eyebrow="Block" title={<span className="num">Slot {slot}.</span>} sub={`${error}. The gateway keeps the latest 4,096 blocks, and the net starts fresh when it restarts.`}>
+        <Link href="/net" className="btn btn-accent btn-xl">
+          Back to the live net
+        </Link>
+      </PageHero>
     );
   if (!b)
     return (
-      <div className="wrap page-head">
-        <h1 className="page-title">Slot {slot}</h1>
-        <div className="muted" style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <Ind kind="spin" /> Loading
-        </div>
-      </div>
+      <PageHero
+        live={false}
+        eyebrow="Block"
+        title={<span className="num">Slot {slot}.</span>}
+        sub={
+          <span style={{ display: "inline-flex", gap: 10, alignItems: "center" }}>
+            <Ind kind="spin" /> Loading
+          </span>
+        }
+      />
     );
   const rows: [string, React.ReactNode][] = [
     ["Slot", <span className="mono">{int(b.slot)}</span>],
@@ -98,33 +100,41 @@ export default function BlockPage({ params }: { params: Promise<{ slot: string }
   ];
   return (
     <>
-      <div className="wrap page-head">
-        <div className="eyebrow">Block</div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-          <h1 className="page-title mono" style={{ marginTop: 8 }}>
-            Slot {int(b.slot)}
-          </h1>
-          <div style={{ display: "flex", gap: 8 }}>
-            {n > 1 && (
-              <Link href={`/net/block/${n - 1}`} className="btn">
-                Previous
-              </Link>
-            )}
-            {n < b.tip && (
-              <Link href={`/net/block/${n + 1}`} className="btn">
-                Next
-                <ArrowRight size={16} />
-              </Link>
-            )}
-          </div>
-        </div>
-        <p className="text-2" style={{ margin: 0 }}>
-          Proposed in instance k{b.instance}, view {int(b.view)}. It became final {ms((b.mergedAtUs - b.proposedAtUs) / 1000, 0)} ms after its leader sent it.
-        </p>
-      </div>
-      <div className="wrap split">
-        <div className="stack">
-          <div className="card">
+      <PageHero
+        live={false}
+        eyebrow={
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+            <BlockMark instance={b.instance} k={24} size={22} />
+            Block · instance k{b.instance}, view {int(b.view)}
+          </span>
+        }
+        title={<span className="num">Slot {int(b.slot)}.</span>}
+        sub={`Its leader in ${CITY_NAMES[b.leaderCity] ?? b.leaderCity} sent it, and it became final ${ms((b.mergedAtUs - b.proposedAtUs) / 1000, 0)} ms later.`}
+        aside={
+          <BigNumbers
+            items={[
+              { v: ms((b.mergedAtUs - b.proposedAtUs) / 1000, 0), unit: "ms", label: "to final" },
+              { v: b.txCount, label: "transactions" },
+              { v: b.sealed, label: "arrived sealed" },
+            ]}
+          />
+        }
+      >
+        {n > 1 && (
+          <Link href={`/net/block/${n - 1}`} className="btn btn-quiet btn-xl">
+            Previous
+          </Link>
+        )}
+        {n < b.tip && (
+          <Link href={`/net/block/${n + 1}`} className="btn btn-quiet btn-xl">
+            Next
+            <ArrowRight size={16} />
+          </Link>
+        )}
+      </PageHero>
+      <div className="wrap split" style={{ paddingTop: 48, gap: 48 }}>
+        <div className="stack" style={{ gap: 56 }}>
+          <Panel title="Details">
             <div className="kv">
               {rows.map(([k, v]) => (
                 <Fragment key={k}>
@@ -133,14 +143,8 @@ export default function BlockPage({ params }: { params: Promise<{ slot: string }
                 </Fragment>
               ))}
             </div>
-          </div>
-          <div className="card">
-            <div className="card-head">
-              <span className="card-title">Transactions</span>
-              <span className="muted" style={{ fontSize: 13 }}>
-                {b.transactions.length}
-              </span>
-            </div>
+          </Panel>
+          <Panel title="Transactions" action={<span className="muted mono" style={{ fontSize: 13 }}>{b.transactions.length}</span>}>
             {b.transactions.length ? (
               <div className="table-wrap">
                 <table className="t">
@@ -156,7 +160,10 @@ export default function BlockPage({ params }: { params: Promise<{ slot: string }
                     {b.transactions.map((t) => (
                       <tr key={t.signature}>
                         <td className="mono">
-                          <Link href={`/tx/${t.signature}`}>{short(t.signature, 8, 8)}</Link>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 10, verticalAlign: "middle" }}>
+                            <TxMark id={t.signature} sealed={t.sealed} size={24} />
+                            <Link href={`/tx/${t.signature}`}>{short(t.signature, 8, 8)}</Link>
+                          </span>
                           {t.sealed && (
                             <span className="pill pill-accent" style={{ marginLeft: 8 }}>
                               sealed
@@ -181,7 +188,7 @@ export default function BlockPage({ params }: { params: Promise<{ slot: string }
                 No transactions in this block. Most blocks are empty when the net is quiet. <Link href="/send" className="accent">Send one →</Link>
               </div>
             )}
-          </div>
+          </Panel>
         </div>
         <div className="card">
           <div className="card-head">

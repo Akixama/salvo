@@ -6,6 +6,8 @@ import { usePoll } from "@/lib/net";
 import { int, ms, sol } from "@/lib/format";
 import { Addr, Ind } from "@/components/ui";
 import { TxTrail, type TxRec } from "@/components/TxTrail";
+import { BigNumbers, PageHero, Panel } from "@/components/PageHero";
+import { TxMark } from "@/components/Marks";
 
 export default function TxPage({ params }: { params: Promise<{ sig: string }> }) {
   const { sig } = use(params);
@@ -13,21 +15,24 @@ export default function TxPage({ params }: { params: Promise<{ sig: string }> })
   const t = data?.tx;
   if (error && !t)
     return (
-      <div className="wrap page-head">
-        <div className="eyebrow">Transaction</div>
-        <h1 className="page-title mono" style={{ marginTop: 8, wordBreak: "break-all", fontSize: 20 }}>
-          {sig}
-        </h1>
-        <div className="notice">{error}. The net starts fresh on restart and keeps the most recent 100,000 transactions.</div>
-      </div>
+      <PageHero live={false} eyebrow={<span className="mono">{sig.slice(0, 12)}…{sig.slice(-8)}</span>} title="Not found." sub={`${error}. The net starts fresh on restart and keeps the most recent 100,000 transactions.`}>
+        <Link href="/net" className="btn btn-accent btn-xl">
+          Back to the live net
+        </Link>
+      </PageHero>
     );
   if (!t)
     return (
-      <div className="wrap page-head">
-        <div className="muted" style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <Ind kind="spin" /> Loading
-        </div>
-      </div>
+      <PageHero
+        live={false}
+        eyebrow="Transaction"
+        title="Looking it up."
+        sub={
+          <span style={{ display: "inline-flex", gap: 10, alignItems: "center" }}>
+            <Ind kind="spin" /> Loading
+          </span>
+        }
+      />
     );
   const rows: [string, React.ReactNode][] = [
     ["Signature", <Addr value={t.signature} head={10} tail={10} />],
@@ -42,15 +47,41 @@ export default function TxPage({ params }: { params: Promise<{ sig: string }> })
   ];
   return (
     <>
-      <div className="wrap page-head">
-        <div className="eyebrow">Transaction{t.source === "traffic" ? " · demo load" : ""}</div>
-        <h1 className="page-title" style={{ marginTop: 8 }}>
-          {t.status === "finalized" && t.receivedAtUs && t.executedAtUs ? `Final in ${ms((t.executedAtUs - t.receivedAtUs) / 1000, 0)} ms` : t.err ? "Failed" : "On its way"}
-        </h1>
-      </div>
-      <div className="wrap split">
-        <div className="stack">
-          <div className="card">
+      <PageHero
+        live={false}
+        eyebrow={
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+            <TxMark id={t.signature} sealed={!!t.sealedId} size={22} />
+            Transaction{t.sealedId ? " · sent sealed" : ""}{t.source === "traffic" ? " · demo load" : ""}
+          </span>
+        }
+        title={
+          t.status === "finalized" && t.receivedAtUs && t.executedAtUs ? (
+            <>
+              Final in
+              <br />
+              <span className="accent num">{ms((t.executedAtUs - t.receivedAtUs) / 1000, 0)} ms.</span>
+            </>
+          ) : t.err ? (
+            "Failed."
+          ) : (
+            "On its way."
+          )
+        }
+        sub={t.sealedId ? "No leader could read it until its block was final; then the validators released their key pieces and it ran." : "Received by the gateway, put in a block by a leader, finalized, merged and run."}
+        aside={
+          <BigNumbers
+            items={[
+              { v: t.slot ? int(t.slot) : "—", label: "slot" },
+              { v: sol(t.fee), unit: "SOL", label: "fee" },
+              { v: t.copies, label: t.copies === 1 ? "copy proposed" : "copies proposed" },
+            ]}
+          />
+        }
+      />
+      <div className="wrap split" style={{ paddingTop: 48, gap: 48 }}>
+        <div className="stack" style={{ gap: 56 }}>
+          <Panel title="Details">
             <div className="kv">
               {rows.map(([k, v]) => (
                 <Fragment key={k}>
@@ -59,12 +90,9 @@ export default function TxPage({ params }: { params: Promise<{ sig: string }> })
                 </Fragment>
               ))}
             </div>
-          </div>
+          </Panel>
           {t.accounts.length > 0 && (
-            <div className="card">
-              <div className="card-head">
-                <span className="card-title">Balance changes</span>
-              </div>
+            <Panel title="Balance changes">
               <div className="table-wrap">
                 <table className="t">
                   <thead>
@@ -94,17 +122,14 @@ export default function TxPage({ params }: { params: Promise<{ sig: string }> })
                   </tbody>
                 </table>
               </div>
-            </div>
+            </Panel>
           )}
           {t.logs.length > 0 && (
-            <div className="card">
-              <div className="card-head">
-                <span className="card-title">Program logs</span>
-              </div>
-              <pre className="mono" style={{ margin: 0, padding: "16px 20px", fontSize: 12, lineHeight: "20px", color: "var(--text-2)", overflowX: "auto" }}>
+            <Panel title="Program logs">
+              <pre className="code mono" style={{ display: "block", marginTop: 20, fontSize: 12, lineHeight: "20px", color: "var(--text-2)", whiteSpace: "pre" }}>
                 {t.logs.join("\n")}
               </pre>
-            </div>
+            </Panel>
           )}
         </div>
         <div className="card">
