@@ -50,12 +50,12 @@ export default function Home() {
       <section className="wrap band">
         <div className="eyebrow">How a salvo works</div>
         <h2 className="h2xl">
-          Order first,
+          Lock it, line it up,
           <br />
-          reveal after.
+          then unlock it.
         </h2>
         <p className="lead" style={{ marginTop: 16 }}>
-          Solana mainnet has one leader at a time and a slot every 400 ms, and that leader sees every transaction it orders. {BRAND.name} runs many leaders at once so blocks come every 10 ms, and seals transactions so the leaders ordering them cannot read them.
+          On Solana, one block maker works at a time, making a block every 400 ms, and it can see every trade it puts in. {BRAND.name} runs many block makers at once, so a block comes every 10 ms, and it locks your trade so none of them can see it.
         </p>
         <HowItWorks />
       </section>

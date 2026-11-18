@@ -35,38 +35,37 @@ export function HowItWorks() {
   const c = f.colluders ?? "…";
   const q = f.quorum ?? "…";
   const k = f.k ?? "…";
-  const d = f.delta ?? "…";
   const gap = f.gap != null ? Math.round(f.gap) : "…";
   const steps = [
     {
       n: "01",
-      title: "Seal",
-      body: `Your wallet encrypts the transaction and splits the key into ${n} pieces, one locked to each validator. Any ${t} pieces open it; ${c} colluding validators cannot.`,
+      title: "Lock",
+      body: `Your wallet locks your trade before it's sent. The key is cut into ${n} pieces, one for each validator, and it takes ${t} pieces to unlock it. So even ${c} validators working together can't peek.`,
     },
     {
       n: "02",
-      title: "Stagger",
-      body: `${k} consensus instances run side by side on the same ${n} validators. Instance k proposes on the same ${d} ms beat as the others, shifted by k × ${gap} ms, so a new block goes out every ${gap} ms.`,
+      title: "Take turns",
+      body: `${k} block makers work at the same time, each starting ${gap} ms after the last. So a new block comes out every ${gap} ms.`,
     },
     {
       n: "03",
       title: "Vote",
-      body: `Each instance is a small Simplex protocol. Validators sign a notarize vote for the proposal, then a finalize vote. ${q} of ${n} matching votes make a certificate. A silent leader's view times out and is skipped.`,
+      body: `Validators vote on every block. Once ${q} of the ${n} agree, the block is accepted. If a block maker goes quiet, its turn is skipped and the others keep going.`,
     },
     {
       n: "04",
-      title: "Merge",
-      body: "Finalized blocks from all instances are read in (view, instance) order, the Gatling rule. Every node gets the same single log without another round of voting.",
+      title: "Line up",
+      body: "All the accepted blocks are put into one list, in an order everyone agrees on without another vote.",
     },
     {
       n: "05",
-      title: "Reveal",
-      body: "Only once a block is final does each validator release its piece of the key for the sealed transactions in it. The order was fixed before anyone could see what was being ordered.",
+      title: "Unlock",
+      body: "Only after a block is locked into the list do the validators hand over their key pieces. By then the order can't change, so seeing your trade is too late to jump ahead of it.",
     },
     {
       n: "06",
-      title: "Execute",
-      body: "The merged log runs on the Solana runtime (LiteSVM). Transactions and programs are unchanged. A transaction two leaders both picked up runs once.",
+      title: "Run",
+      body: "Trades run on the same engine Solana uses, so Solana apps work as they are. If two block makers grab the same trade, it still only runs once.",
     },
   ];
   return (
@@ -86,18 +85,18 @@ export function RealTable() {
   const f = useFacts();
   const n = f.n ?? "…";
   const rows: [string, string][] = [
-    ["Consensus", `Real. Each of the ${n} validators is its own actor with its own key; votes are Ed25519-signed and checked. ${f.quorum ?? "…"} matching votes make a certificate.`],
-    ["Merge rule", "Real. The (view, instance) cursor from the paper's reference prototype."],
-    ["Solana runtime", "Real. LiteSVM runs your transactions, fees and programs."],
+    ["Voting", `Real. Each of the ${n} validators has its own key and signs its votes. ${f.quorum ?? "…"} votes are needed to accept a block.`],
+    ["Ordering", "Real. Blocks are lined up using the exact rule from the Gatling paper."],
+    ["Running trades", "Real. Solana's own engine runs your trades, fees and programs."],
     [
-      "Sealing",
-      `Real. AES-256-GCM and X25519, with the key split ${f.threshold ?? "…"}-of-${n} (Shamir). Up to ${f.colluders ?? "…"} colluding validators cannot open a transaction early. Fees cannot be checked before it opens, so sealed sends are rate limited.`,
+      "Locked trades",
+      `Real encryption. It takes ${f.threshold ?? "…"} of the ${n} validators to unlock a trade, so ${f.colluders ?? "…"} working together can't. You can send 30 locked trades a minute, because fees can't be checked until a trade unlocks.`,
     ],
-    ["Numbers", "Measured on this net, live. Targets are labelled as targets."],
-    ["Geography", "Simulated. All validators run on one machine; messages between Frankfurt, London, New York, Tokyo and Singapore are delayed by real-world one-way times."],
-    ["Execution", "One executor follows the merged log and publishes a log hash per block."],
-    ["Hosting", "Right now the net runs on one PC behind a free tunnel, so it can go offline, and pages load slower than the chain itself."],
-    ["State", "Starts fresh on every restart. Test SOL has no value."],
+    ["Numbers", "Measured live on this net. Anything that's a goal rather than a measurement says so."],
+    ["Locations", "Pretend. All the validators run on one computer. The distance between Frankfurt, London, New York, Tokyo and Singapore is copied by adding real travel delays to every message."],
+    ["Results", "One machine runs the final list of trades and posts a fingerprint of the result after every block."],
+    ["Hosting", "For now it runs on one PC through a free connection, so it can go offline, and pages load slower than the chain really is."],
+    ["Resets", "Starts from scratch on every restart. Test SOL is worth nothing."],
   ];
   return (
     <div className="kv">
