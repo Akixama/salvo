@@ -2,6 +2,21 @@
 
 Working name. Easy to change in one place (`web/lib/brand.ts` and the node's `--name`).
 
+## Status (2026-11-18)
+
+Done:
+- **Node:** Gatling consensus and merge, sealed transactions, LiteSVM execution, the Solana JSON-RPC subset, REST, the event stream and the Fault Lab.
+- **Site:** home with the live beams hero, Net, block and transaction pages, Send, Mine, Faucet, Fault Lab and Docs, all in one design.
+- **Live:** [salvo-net.vercel.app](https://salvo-net.vercel.app). The net runs on the user's PC behind Cloudflare quick tunnels (`deploy/go-live.sh`). GitHub Actions builds the Linux node.
+
+Next:
+- A permanent server, using `deploy/server-setup.sh`. Oracle Always Free needs a physical card; Azure for Students failed at sign-in.
+- Feedback from users.
+- A launch video.
+- The token.
+
+The sections below are the original plan; the README describes the system as built.
+
 ## What it is
 
 A Solana-compatible test chain that runs Gatling (Scaffino, Resnick, Neu, arXiv 2606.18220).
