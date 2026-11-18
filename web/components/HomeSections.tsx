@@ -4,39 +4,26 @@ import { Fragment } from "react";
 import CountUp from "./bits/CountUp";
 import { useNet } from "@/lib/net";
 import { useFacts } from "./Facts";
-import { LiveBadge } from "./Live";
 
-/** Three live numbers beside the main button: what the net is doing right now. */
-export function LiveCounts() {
+/** Three big live numbers under the hero buttons, no boxes. */
+export function HeroNumbers() {
   const s = useNet().stats;
+  const items: [React.ReactNode, string, string][] = [
+    [s?.gapMs.p50 != null ? <CountUp to={s.gapMs.p50} decimals={1} duration={0.6} trigger="load" /> : "—", "ms", "between blocks"],
+    [s?.blockFinalityMs.p50 != null ? <CountUp to={Math.round(s.blockFinalityMs.p50)} duration={0.6} trigger="load" /> : "—", "ms", "to final"],
+    [s ? <CountUp to={s.sealedRevealed} separator="," duration={0.6} trigger="load" /> : "—", "", "sealed sends opened"],
+  ];
   return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <span className="muted" style={{ fontSize: 13 }}>
-          Right now
-        </span>
-        <LiveBadge />
-      </div>
-      <div className="live-counts">
-        <div>
-          <div className="stat-label">Blocks a second</div>
-          <div className="v">{s ? <CountUp to={Math.round(s.blocksPerSecond)} duration={0.6} trigger="load" /> : "—"}</div>
-          <div className="stat-sub">one every {s ? s.gapMs.p50?.toFixed(1) ?? "—" : "—"} ms</div>
-        </div>
-        <div>
-          <div className="stat-label">Final in</div>
-          <div className="v">
-            {s?.blockFinalityMs.p50 != null ? <CountUp to={Math.round(s.blockFinalityMs.p50)} duration={0.6} trigger="load" /> : "—"}
-            <small>ms</small>
+    <div className="hero-numbers">
+      {items.map(([v, unit, label]) => (
+        <div key={label}>
+          <div className="hn-v">
+            {v}
+            {unit && <span className="hn-u">{unit}</span>}
           </div>
-          <div className="stat-sub">median, block to log</div>
+          <div className="hn-l">{label}</div>
         </div>
-        <div>
-          <div className="stat-label">Sealed, opened</div>
-          <div className="v">{s ? <CountUp to={s.sealedRevealed} duration={0.6} separator="," trigger="load" /> : "—"}</div>
-          <div className="stat-sub">read only after final</div>
-        </div>
-      </div>
+      ))}
     </div>
   );
 }
@@ -83,16 +70,12 @@ export function HowItWorks() {
     },
   ];
   return (
-    <div className="grid-3" style={{ marginTop: 32 }}>
+    <div className="rows">
       {steps.map((s) => (
-        <div key={s.n} className="card card-pad">
-          <div className="mono accent" style={{ fontSize: 13 }}>
-            {s.n}
-          </div>
-          <div style={{ fontSize: 18, fontWeight: 500, margin: "8px 0 8px" }}>{s.title}</div>
-          <div className="text-2" style={{ fontSize: 14 }}>
-            {s.body}
-          </div>
+        <div key={s.n} className="row">
+          <span className="row-n mono">{s.n}</span>
+          <span className="row-t">{s.title}</span>
+          <span className="row-b">{s.body}</span>
         </div>
       ))}
     </div>

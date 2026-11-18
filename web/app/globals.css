@@ -899,7 +899,7 @@ table.t .r {
 
 .activity {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--cols, 5), minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1169,5 +1169,244 @@ table.t .r {
   }
   .activity-card:nth-child(n + 3) {
     display: none;
+  }
+}
+
+/* ---------- redesign: hero, open sections ---------- */
+
+.hero-xl {
+  position: relative;
+  overflow: hidden;
+  min-height: min(880px, calc(100vh - 60px));
+  display: flex;
+  align-items: flex-start;
+  border-bottom: 1px solid var(--line);
+  background:
+    radial-gradient(1200px 600px at 50% 100%, rgba(245, 165, 36, 0.05), transparent 70%),
+    var(--bg);
+}
+
+.beams {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hero-xl-in {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding-top: clamp(56px, 10vh, 112px);
+  padding-bottom: 220px;
+}
+
+.display {
+  font-size: clamp(42px, 8.4vw, 112px);
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+  font-weight: 600;
+  margin: 24px 0 24px;
+}
+
+.hero-sub {
+  font-size: clamp(17px, 1.6vw, 20px);
+  line-height: 1.5;
+  color: var(--text-2);
+  max-width: 38rem;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 36px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.btn-xl {
+  height: 52px;
+  padding: 0 26px;
+  font-size: 16px;
+  border-radius: 12px;
+}
+
+.btn-accent.btn-xl {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 10px 40px -8px rgba(245, 165, 36, 0.55);
+}
+
+.btn-quiet {
+  background: rgba(17, 20, 28, 0.6);
+  backdrop-filter: blur(8px);
+}
+
+.hero-numbers {
+  display: flex;
+  justify-content: center;
+  margin-top: 56px;
+}
+
+.hero-numbers > div {
+  padding: 0 36px;
+  text-align: center;
+}
+
+.hero-numbers > div + div {
+  border-left: 1px solid var(--line-strong);
+}
+
+.hn-v {
+  font-size: clamp(30px, 3.4vw, 44px);
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.hn-u {
+  font-size: 0.42em;
+  font-weight: 500;
+  color: var(--muted);
+  margin-left: 4px;
+  letter-spacing: 0;
+}
+
+.hn-l {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.band {
+  padding-top: 112px;
+  padding-bottom: 8px;
+}
+
+.band-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+
+.h2xl {
+  font-size: clamp(36px, 5vw, 64px);
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+  font-weight: 600;
+  margin: 12px 0 0;
+}
+
+.h3xl {
+  font-size: clamp(26px, 2.6vw, 34px);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  font-weight: 600;
+  margin: 12px 0 12px;
+}
+
+.link-arrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.link-arrow svg {
+  transition: transform 160ms var(--ease);
+}
+
+.link-arrow:hover svg {
+  transform: translateX(3px);
+}
+
+.rows {
+  margin-top: 48px;
+  border-top: 1px solid var(--line);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 56px 200px minmax(0, 1fr);
+  gap: 16px;
+  align-items: baseline;
+  padding: 22px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.row-n {
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.row-t {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.row-b {
+  color: var(--text-2);
+  font-size: 15px;
+  line-height: 1.6;
+  max-width: 44rem;
+}
+
+.open-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 64px;
+}
+
+.open-grid p {
+  font-size: 15px;
+  line-height: 1.6;
+  margin: 0;
+  max-width: 32rem;
+}
+
+.page-title {
+  font-size: clamp(32px, 4vw, 48px);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+}
+
+@media (max-width: 760px) {
+  .hero-xl {
+    min-height: 0;
+  }
+  .hero-xl-in {
+    padding-bottom: 160px;
+  }
+  .hero-numbers > div {
+    padding: 0 14px;
+  }
+  .hn-l {
+    font-size: 12px;
+  }
+  .band {
+    padding-top: 72px;
+  }
+  .row {
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 4px 12px;
+  }
+  .row-b {
+    grid-column: 2;
+  }
+  .open-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 48px;
   }
 }

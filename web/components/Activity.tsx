@@ -83,7 +83,7 @@ export function ActivityStrip({ count = 5 }: { count?: number }) {
     );
   }
   return (
-    <div className="activity" aria-live="polite">
+    <div className="activity" aria-live="polite" style={{ ["--cols" as string]: count } as React.CSSProperties}>
       {items.map((a) => {
         const d = describe(a);
         const body = (
