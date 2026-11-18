@@ -324,7 +324,9 @@ impl Net {
         let msg = Message::new(&[cu_ix, ix], Some(&self.faucet.pubkey()));
         let tx = Transaction::new(&[self.faucet.as_ref()], msg, bh);
         let raw = bincode::serialize(&VersionedTransaction::from(tx)).expect("serialize");
-        self.submit(raw, "user")
+        let sig = self.submit(raw, "user")?;
+        self.state.write().activity("faucet", json!({ "signature": sig, "to": to.to_string(), "lamports": lamports }));
+        Ok(sig)
     }
 }
 
@@ -339,11 +341,13 @@ struct SealState {
     plain: Option<Arc<Vec<u8>>>,
     failed: bool,
     seen: Instant,
+    /// Sent to the executor already; later copies from other leaders run as duplicates.
+    forwarded: bool,
 }
 
 impl SealState {
     fn new() -> SealState {
-        SealState { env: None, shares: Vec::new(), plain: None, failed: false, seen: Instant::now() }
+        SealState { env: None, shares: Vec::new(), plain: None, failed: false, seen: Instant::now(), forwarded: false }
     }
 
     /// Open the envelope once enough checked shares are in.
@@ -398,10 +402,14 @@ fn note_envelopes(seals: &mut HashMap<Digest, SealState>, state: &SharedState, b
 /// and the transaction gets a record that remembers it arrived sealed.
 fn on_revealed(state: &SharedState, id: &Digest, plain: &[u8], at_us: u64) {
     let key = hex(id);
-    let sig = bincode::deserialize::<VersionedTransaction>(plain).ok().and_then(|t| t.signatures.first().map(|s| s.to_string()));
+    let tx = bincode::deserialize::<VersionedTransaction>(plain).ok();
+    let sig = tx.as_ref().and_then(|t| t.signatures.first().map(|s| s.to_string()));
+    let lamports = tx.as_ref().and_then(crate::exec::transfer_lamports);
     let mut st = state.write();
     st.stats.sealed_revealed += 1;
     let Some(sig) = sig else { return };
+    let source = st.txs.get(&key).map(|r| r.source).unwrap_or("traffic");
+    st.activity("sealed", json!({ "signature": sig, "sealedId": key, "lamports": lamports, "source": source, "atUs": at_us }));
     let mut base = None;
     if let Some(rec) = st.txs.get_mut(&key) {
         rec.status = "revealed";
@@ -465,16 +473,25 @@ fn flush(held: &mut VecDeque<Merged>, seals: &mut HashMap<Digest, SealState>, ex
         let mut m = held.pop_front().unwrap();
         let mut sealed = 0;
         let mut txs = Vec::with_capacity(m.block.txs.len());
+        let mut any_sealed = false;
         for tx in &m.block.txs {
             if !seal::is_sealed(tx) {
                 txs.push(tx.clone());
                 continue;
             }
-            sealed += 1;
+            any_sealed = true;
             let id = tx_id(tx);
             let plain = seals.get(&id).and_then(|s| s.plain.clone());
             match plain {
-                Some(p) => txs.push(p),
+                Some(p) => {
+                    if let Some(s) = seals.get_mut(&id) {
+                        if !s.forwarded {
+                            s.forwarded = true;
+                            sealed += 1;
+                        }
+                    }
+                    txs.push(p)
+                }
                 None => {
                     if let Some(s) = seals.get_mut(&id) {
                         s.failed = true;
@@ -489,8 +506,10 @@ fn flush(held: &mut VecDeque<Merged>, seals: &mut HashMap<Digest, SealState>, ex
                 }
             }
         }
-        if sealed > 0 {
-            state.write().stats.reveal_ms.push(now.saturating_sub(m.merged_at_us) as f64 / 1000.0);
+        if any_sealed {
+            if sealed > 0 {
+                state.write().stats.reveal_ms.push(now.saturating_sub(m.merged_at_us) as f64 / 1000.0);
+            }
             let mut b = (*m.block).clone();
             b.txs = txs;
             m.block = Arc::new(b);

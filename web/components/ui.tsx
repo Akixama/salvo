@@ -19,6 +19,13 @@ export function Ind({ kind, color }: { kind: "live" | "spin" | "wait" | "done" |
         <span style={{ position: "absolute", inset: 3, borderRadius: "50%", background: color || "var(--neg)" }} />
       </span>
     );
+  if (kind === "live")
+    // Three ticks firing in turn: a tiny salvo.
+    return (
+      <span className="ind ind-live" style={style} aria-hidden="true">
+        <i style={{ animationDelay: "0.15s" }} />
+      </span>
+    );
   return <span className={`ind ind-${kind}`} style={style} aria-hidden="true" />;
 }
 

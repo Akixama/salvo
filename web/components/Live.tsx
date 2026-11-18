@@ -8,6 +8,8 @@ import { ago, CITY_NAMES, int, ms, uptime } from "@/lib/format";
 import { DiagramLegend, TimingDiagram } from "./TimingDiagram";
 import { Ind, Stat, Tween } from "./ui";
 import { ArrowRight } from "./icons";
+import { BlockMark } from "./Marks";
+import { StatusPill } from "./StatusPill";
 
 export function LiveBadge() {
   const net = useNet();
@@ -89,7 +91,15 @@ export function LiveStats() {
   );
 }
 
-export function BlocksTable({ limit = 12, compact = false }: { limit?: number; compact?: boolean }) {
+export type BlockFilter = "all" | "txs" | "sealed";
+
+export function matchesFilter(b: BlockSummary, f: BlockFilter) {
+  if (f === "txs") return b.txs > 0;
+  if (f === "sealed") return (b.sealed ?? 0) > 0;
+  return true;
+}
+
+export function BlocksTable({ limit = 12, compact = false, filter = "all" }: { limit?: number; compact?: boolean; filter?: BlockFilter }) {
   const net = useNetStore();
   // A block lands every few ms; refresh the rows a few times a second so they can be read.
   const now = useNow(400);
@@ -97,19 +107,33 @@ export function BlocksTable({ limit = 12, compact = false }: { limit?: number; c
   const [paused, setPaused] = useState(false);
   const [rows, setRows] = useState<BlockSummary[]>([]);
   useEffect(() => {
-    if (!paused) setRows(net.blocks.slice(0, limit));
-  }, [paused, now, net, limit]);
+    if (!paused) setRows(net.blocks.filter((b) => matchesFilter(b, filter)).slice(0, limit));
+  }, [paused, now, net, limit, filter]);
   if (!rows.length) {
-    return <div className="empty">{net.everConnected ? "Waiting for the first block to enter the merged log." : "Connecting to the net."}</div>;
+    return (
+      <div className="empty">
+        {!net.everConnected
+          ? "Connecting to the net."
+          : filter === "all"
+            ? "Waiting for the first block to enter the merged log."
+            : "None in the latest blocks yet. "}
+        {net.everConnected && filter !== "all" && (
+          <Link href="/send" className="accent">
+            Send one →
+          </Link>
+        )}
+      </div>
+    );
   }
   return (
     <div className="table-wrap" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
       <table className="t">
         <thead>
           <tr>
-            <th>Slot</th>
+            <th>Block</th>
             <th>Instance · view</th>
             <th className="hide-sm">Leader</th>
+            <th className="hide-sm">Status</th>
             <th className="r">Txs</th>
             <th className="r">Finality</th>
             {!compact && <th className="r hide-sm">Merged</th>}
@@ -118,14 +142,25 @@ export function BlocksTable({ limit = 12, compact = false }: { limit?: number; c
         <tbody>
           {rows.map((b) => (
             <tr key={b.slot} className="clickable" onClick={() => router.push(`/net/block/${b.slot}`)}>
-              <td className="mono">
-                <Link href={`/net/block/${b.slot}`}>{int(b.slot)}</Link>
+              <td>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                  <BlockMark instance={b.instance} k={net.stats?.instances ?? 24} size={26} />
+                  <Link href={`/net/block/${b.slot}`} className="mono">
+                    {int(b.slot)}
+                  </Link>
+                </span>
               </td>
               <td className="mono text-2">
                 k{b.instance} · v{b.view}
               </td>
               <td className="hide-sm text-2">
                 <span className="mono">#{b.leader}</span> <span className="muted">{CITY_NAMES[b.city] ?? b.city}</span>
+              </td>
+              <td className="hide-sm">
+                <span style={{ display: "inline-flex", gap: 6 }}>
+                  <StatusPill status="final" />
+                  {(b.sealed ?? 0) > 0 && <StatusPill status="sealed" label={`${b.sealed} sealed`} />}
+                </span>
               </td>
               <td className="r mono">{b.txs}</td>
               <td className="r mono">{ms((b.mergedAtUs - b.proposedAtUs) / 1000, 0)} ms</td>

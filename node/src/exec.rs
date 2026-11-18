@@ -315,12 +315,20 @@ impl Executor {
                 }
                 let sig = u.signature.clone();
                 let ev = json!({ "type": "tx", "signature": sig, "status": u.status, "slot": slot, "err": u.err });
-                st.txs.insert(sig, u);
+                let accounts = u.accounts.clone();
+                if u.source == "user" && u.sealed_id.is_none() {
+                    let ms = u.executed_at_us.unwrap_or(0).saturating_sub(u.received_at_us) / 1000;
+                    st.activity("send", json!({ "signature": sig, "slot": slot, "ms": ms, "failed": u.err.is_some() }));
+                }
+                st.txs.insert(sig.clone(), u);
+                st.index_tx(&sig, &accounts);
                 st.push_event(ev);
             } else {
                 // Transactions that did not come through this gateway (background traffic).
                 let id: [u8; 32] = Sha256::digest(u.signature.as_bytes()).into();
+                let (sig, accounts) = (u.signature.clone(), u.accounts.clone());
                 st.add_tx(u, id);
+                st.index_tx(&sig, &accounts);
             }
         }
         let summary = json!({
@@ -328,7 +336,7 @@ impl Executor {
             "slot": rec.slot, "instance": rec.instance, "view": rec.view, "leader": rec.leader,
             "city": rec.leader_city, "txs": rec.tx_count, "proposedAtUs": rec.proposed_at_us,
             "finalizedAtUs": rec.finalized_at_us, "mergedAtUs": rec.merged_at_us, "executedAtUs": rec.executed_at_us,
-            "blockhash": rec.blockhash,
+            "blockhash": rec.blockhash, "sealed": rec.sealed,
         });
         st.push_event(summary);
         st.blocks.push_back(rec);
@@ -340,3 +348,15 @@ impl Executor {
 }
 
 pub type ExecTx = Sender<ExecCmd>;
+
+/// The amount of the first System Program transfer in a transaction, if it has one.
+pub fn transfer_lamports(tx: &VersionedTransaction) -> Option<u64> {
+    let keys = tx.message.static_account_keys();
+    tx.message.instructions().iter().find_map(|ix| {
+        let program = keys.get(ix.program_id_index as usize)?;
+        if *program != Address::default() || ix.data.len() < 12 || ix.data[..4] != [2, 0, 0, 0] {
+            return None;
+        }
+        Some(u64::from_le_bytes(ix.data[4..12].try_into().ok()?))
+    })
+}

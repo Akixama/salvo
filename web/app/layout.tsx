@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { NetProvider } from "@/lib/net";
 import { Footer, Header, Offline } from "@/components/Chrome";
+import { Toaster } from "@/components/Activity";
 import { BRAND } from "@/lib/brand";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist", display: "swap" });
@@ -22,6 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Offline />
           <main>{children}</main>
           <Footer />
+          <Toaster />
         </NetProvider>
       </body>
     </html>

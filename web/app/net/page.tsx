@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { BlocksTable, LiveBadge, LiveDiagramCard, LiveStats } from "@/components/Live";
+import { BlocksTable, LiveBadge, LiveDiagramCard, LiveStats, matchesFilter, type BlockFilter } from "@/components/Live";
 import { FinalityChart } from "@/components/FinalityChart";
 import { useNet, useNow, usePoll } from "@/lib/net";
 import { CITY_NAMES, int, ms, short } from "@/lib/format";
@@ -121,8 +121,28 @@ function Validators() {
   );
 }
 
+function FilterTabs({ value, onChange }: { value: BlockFilter; onChange: (f: BlockFilter) => void }) {
+  const net = useNet();
+  const tabs: [BlockFilter, string][] = [
+    ["all", "All"],
+    ["txs", "With transactions"],
+    ["sealed", "Sealed"],
+  ];
+  return (
+    <div className="tabs" role="tablist" aria-label="Filter blocks">
+      {tabs.map(([f, label]) => (
+        <button key={f} className="tab" role="tab" aria-selected={value === f} onClick={() => onChange(f)}>
+          {label}
+          <span className="count">{net.blocks.filter((b) => matchesFilter(b, f)).length}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function NetPage() {
   const net = useNet();
+  const [filter, setFilter] = useState<BlockFilter>("all");
   const { data: latency } = usePoll<{ blockFinalityMs: number[]; gapMs: number[]; txFinalityMs: number[] }>("/v1/latency", 3000);
   const s = net.stats;
   return (
@@ -145,16 +165,17 @@ export default function NetPage() {
         <LiveDiagramCard rowHeight={11} />
         <div className="split">
           <div className="card">
-            <div className="card-head">
+            <div className="card-head" style={{ flexWrap: "wrap" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <span className="card-title">Merged log</span>
                 <LiveBadge />
               </div>
-              <span className="muted" style={{ fontSize: 13 }}>
-                Hover to pause
-              </span>
+              <FilterTabs value={filter} onChange={setFilter} />
             </div>
-            <BlocksTable limit={16} compact />
+            <BlocksTable limit={16} compact filter={filter} />
+            <div className="muted" style={{ fontSize: 12, padding: "10px 20px", borderTop: "1px solid var(--line)" }}>
+              Hover the list to pause it. Counts are over the latest {net.blocks.length} blocks.
+            </div>
           </div>
           <div className="card">
             <div className="card-head">

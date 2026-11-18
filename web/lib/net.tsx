@@ -26,6 +26,26 @@ export type Stats = {
   genesisUs: number;
   nowUs: number;
   live: boolean;
+  quorum: number;
+  sealThreshold: number;
+};
+
+/** A real event from the net, with the time it happened. */
+export type Activity = {
+  kind: "sealed" | "send" | "faucet" | "lab";
+  atUs: number;
+  signature?: string;
+  sealedId?: string;
+  lamports?: number | null;
+  source?: string;
+  slot?: number;
+  ms?: number;
+  failed?: boolean;
+  to?: string;
+  runId?: string;
+  title?: string;
+  status?: string;
+  verdict?: string;
 };
 
 export type Instance = {
@@ -61,6 +81,7 @@ export type BlockSummary = {
   mergedAtUs: number;
   executedAtUs: number;
   blockhash: string;
+  sealed?: number;
 };
 
 /** One (instance, view) cell of the timing diagram. */
@@ -77,6 +98,9 @@ class NetStore {
   validators: Validator[] = [];
   blocks: BlockSummary[] = [];
   cells = new Map<string, Cell>();
+  activity: Activity[] = [];
+  /** Notable events (not background load) since this tab opened. */
+  unseen = 0;
   connected = false;
   everConnected = false;
   clockOffsetMs = 0;
@@ -84,6 +108,7 @@ class NetStore {
   private listeners = new Set<Listener>();
   private txListeners = new Set<(e: TxEvent) => void>();
   private blockListeners = new Set<(b: BlockSummary) => void>();
+  private activityListeners = new Set<(a: Activity) => void>();
   private ws: WebSocket | null = null;
   private started = false;
   private retry = 0;
@@ -148,6 +173,7 @@ class NetStore {
       this.instances = msg.instances;
       this.validators = msg.validators;
       this.blocks = msg.recentBlocks;
+      if (msg.recentActivity) this.activity = [...msg.recentActivity].reverse();
     } else if (msg.type === "stats") {
       this.setStats(msg.stats);
       this.instances = msg.instances;
@@ -179,11 +205,20 @@ class NetStore {
       }
     } else if (e.type === "block") {
       const b: BlockSummary = e;
+      // The first batch after connecting can repeat blocks already in the snapshot.
+      if (this.blocks.length && b.slot <= this.blocks[0].slot) return;
       this.blocks.unshift(b);
       if (this.blocks.length > 400) this.blocks.length = 400;
       this.blockListeners.forEach((f) => f(b));
     } else if (e.type === "tx") {
       this.txListeners.forEach((f) => f(e));
+    } else if (e.type === "activity") {
+      const a: Activity = e;
+      if (this.activity.some((x) => x.kind === a.kind && x.atUs === a.atUs && x.signature === a.signature && x.runId === a.runId)) return;
+      this.activity.unshift(a);
+      if (this.activity.length > 40) this.activity.length = 40;
+      if (a.source !== "traffic") this.unseen++;
+      this.activityListeners.forEach((f) => f(a));
     }
   }
 
@@ -219,6 +254,18 @@ class NetStore {
     return () => {
       this.txListeners.delete(f);
     };
+  }
+
+  onActivity(f: (a: Activity) => void) {
+    this.activityListeners.add(f);
+    return () => {
+      this.activityListeners.delete(f);
+    };
+  }
+
+  markSeen() {
+    this.unseen = 0;
+    this.emit();
   }
 
   onBlock(f: (b: BlockSummary) => void) {

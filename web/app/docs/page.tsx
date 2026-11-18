@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { BRAND, PUBLIC_RPC_LABEL, PUBSUB_URL } from "@/lib/brand";
 import { CopyButton } from "@/components/ui";
+import { Fact } from "@/components/Facts";
 import { External } from "@/components/icons";
 
 export const metadata: Metadata = { title: "Docs" };
@@ -21,10 +22,12 @@ const METHODS = [
   ["salvo_getSealKeys, salvo_sendSealed", "Sealing keys, and send a sealed envelope (base64). Also GET /v1/seal and POST /v1/sealed"],
 ];
 
-const FAQ = [
+const FAQ: [string, React.ReactNode][] = [
   [
     "Can a leader front-run my trade?",
-    "Not if you seal it. A sealed transaction is encrypted in your wallet, and its key is split so that any 4 of the 10 validators can open it and no 3 can. Validators only release their pieces after the block carrying it is final, when its place in the order can no longer change. The leader orders a blob it cannot read. What sealing does not hide: that you sent something, its size, and when.",
+    <>
+      Not if you seal it. A sealed transaction is encrypted in your wallet, and its key is split so that any <Fact k="threshold" /> of the <Fact k="n" /> validators can open it and no <Fact k="colluders" /> can. Validators only release their pieces after the block carrying it is final, when its place in the order can no longer change. The leader orders a blob it cannot read. What sealing does not hide: that you sent something, its size, and when.
+    </>,
   ],
   [
     "What does sealing cost?",
@@ -143,7 +146,9 @@ console.log(await connection.getBalance(me.publicKey));`;
           </div>
           <div className="kv">
             <div>Validators</div>
-            <div>10, two each in Frankfurt, London, New York, Tokyo and Singapore (simulated). 7 matching votes make a certificate, so every certificate needs at least one vote from another continent.</div>
+            <div>
+              <Fact k="n" /> spread across Frankfurt, London, New York, Tokyo and Singapore (simulated). <Fact k="quorum" /> matching votes make a certificate, and no single region holds that many, so every certificate crosses an ocean.
+            </div>
             <div>Instances</div>
             <div>24 Simplex instances. Instance k proposes at genesis + v × 240 ms + k × 10 ms.</div>
             <div>Timeout</div>
@@ -151,7 +156,7 @@ console.log(await connection.getBalance(me.publicKey));`;
             <div>Merge</div>
             <div>Finalized blocks are read in (view, instance) order; skipped views are gaps.</div>
             <div>Sealing</div>
-            <div>AES-256-GCM for the transaction, X25519 to lock each key piece to one validator, Shamir sharing with 4 of 10 needed. Pieces are released only after the block is finalized. Format and code: node/src/seal.rs and web/lib/seal.ts.</div>
+            <div>AES-256-GCM for the transaction, X25519 to lock each key piece to one validator, Shamir sharing with <Fact k="threshold" /> of <Fact k="n" /> needed. Pieces are released only after the block is finalized. Format and code: node/src/seal.rs and web/lib/seal.ts.</div>
             <div>Execution</div>
             <div>LiteSVM, signature checks on, fees 5,000 lamports per signature, blockhashes valid for about 90 seconds.</div>
             <div>Gateway</div>

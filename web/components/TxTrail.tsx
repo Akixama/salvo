@@ -2,6 +2,7 @@
 
 import { ms } from "@/lib/format";
 import { Ind } from "./ui";
+import { useFacts } from "./Facts";
 
 export type TxRec = {
   signature: string;
@@ -33,6 +34,7 @@ export function TxTrail({ tx }: { tx: TxRec }) {
   const t0 = tx.receivedAtUs || tx.includedAtUs || 0;
   const failed = tx.status === "failed";
   const sealed = !!tx.sealedId;
+  const f = useFacts();
   const steps = [
     { label: sealed ? "Received sealed by the gateway" : "Received by the gateway", at: tx.receivedAtUs || null, note: "Frankfurt" },
     {
@@ -40,7 +42,7 @@ export function TxTrail({ tx }: { tx: TxRec }) {
       at: tx.includedAtUs,
       note: tx.instance != null ? `instance k${tx.instance}, view ${tx.view}${sealed ? ", the leader could not read it" : ""}` : "",
     },
-    ...(sealed ? [{ label: "Revealed", at: tx.revealedAtUs, note: "4 of 10 validators released their key pieces after the block was final" }] : []),
+    ...(sealed ? [{ label: "Revealed", at: tx.revealedAtUs, note: `${f.threshold ?? "Enough"} of ${f.n ?? "the"} validators released their key pieces after the block was final` }] : []),
     { label: sealed ? "In the merged log" : "Finalized and merged", at: tx.finalizedAtUs, note: tx.slot ? `slot ${tx.slot}` : "" },
     { label: failed ? "Executed, and failed" : "Executed", at: tx.executedAtUs, note: failed ? tx.err ?? "" : "" },
   ];

@@ -107,6 +107,7 @@ pub fn router(app: App) -> Router {
         .route("/v1/blocks", get(v1_blocks))
         .route("/v1/blocks/{slot}", get(v1_block))
         .route("/v1/tx/{sig}", get(v1_tx))
+        .route("/v1/address/{addr}", get(v1_address))
         .route("/v1/latency", get(v1_latency))
         .route("/v1/faucet", post(v1_faucet))
         .route("/v1/seal", get(v1_seal))
@@ -380,6 +381,7 @@ async fn v1_net(State(app): State<App>) -> Json<Value> {
         "instances": st.instances,
         "validators": st.validators,
         "recentBlocks": recent,
+        "recentActivity": st.recent_activity,
         "observerCity": app.net.cfg.observer_city.code(),
         "rpc": { "faucetLamports": FAUCET_LAMPORTS },
     }))
@@ -425,6 +427,37 @@ async fn v1_block(State(app): State<App>, Path(slot): Path<u64>) -> Response {
         }
         None => (StatusCode::NOT_FOUND, Json(json!({ "error": "This block is not kept any more, or does not exist yet", "tip": st.slot() }))).into_response(),
     }
+}
+
+/// Balance and recent transactions of one account, for the "Mine" page.
+async fn v1_address(State(app): State<App>, Path(addr): Path<String>) -> Response {
+    let Ok(a) = Address::from_str(addr.trim()) else {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "That is not a valid Solana address" }))).into_response();
+    };
+    let acc = accounts(&app, vec![a]).await;
+    let lamports = acc.first().and_then(|x| x.as_ref()).map(|x| x.lamports).unwrap_or(0);
+    let st = app.net.state.read();
+    let txs: Vec<Value> = st
+        .by_address
+        .get(&a.to_string())
+        .map(|l| {
+            l.iter()
+                .rev()
+                .filter_map(|s| st.txs.get(s))
+                .map(|t| {
+                    let i = t.accounts.iter().position(|x| x == &addr);
+                    let change = i.and_then(|i| Some(*t.post_balances.get(i)? as i64 - *t.pre_balances.get(i)? as i64));
+                    json!({
+                        "signature": t.signature, "status": t.status, "slot": t.slot, "err": t.err,
+                        "sealed": t.sealed_id.is_some(), "source": t.source, "fee": t.fee,
+                        "executedAtUs": t.executed_at_us, "receivedAtUs": t.received_at_us, "change": change,
+                        "feePayer": t.fee_payer,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Json(json!({ "address": a.to_string(), "lamports": lamports, "transactions": txs, "tip": st.slot() })).into_response()
 }
 
 fn seal_keys(net: &Net) -> Value {
@@ -539,7 +572,7 @@ async fn events_loop(app: App, mut socket: WebSocket) {
     let (snapshot, mut rx) = {
         let st = app.net.state.read();
         let recent: Vec<Value> = st.blocks.iter().rev().take(240).map(block_summary).collect();
-        let snap = json!({ "type": "snapshot", "stats": st.stats_json(), "instances": st.instances, "validators": st.validators, "recentBlocks": recent });
+        let snap = json!({ "type": "snapshot", "stats": st.stats_json(), "instances": st.instances, "validators": st.validators, "recentBlocks": recent, "recentActivity": st.recent_activity });
         (snap.to_string(), st.events.subscribe())
     };
     if socket.send(WsMessage::Text(snapshot.into())).await.is_err() {

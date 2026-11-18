@@ -8,9 +8,11 @@ import { ms, short, sol } from "@/lib/format";
 import { Addr, Ind } from "@/components/ui";
 import { TxTrail, type TxRec } from "@/components/TxTrail";
 import { seal, type SealKeys } from "@/lib/seal";
+import { toast } from "@/components/Activity";
 import { Refresh } from "@/components/icons";
 
 const KEY = "salvo-burner-v1";
+const toasted = new Set<string>();
 
 function loadBurner(): Keypair {
   try {
@@ -104,6 +106,13 @@ export default function SendPage() {
         const done = t.status === "finalized" || t.status === "failed";
         const next = { ...c, tx: t, finalSeenAt: done && !c.finalSeenAt ? performance.now() : c.finalSeenAt };
         if (done && !c.finalSeenAt) {
+          const took = Math.round((next.finalSeenAt ?? performance.now()) - c.clickedAt);
+          // State updaters can run twice in development; toast once per transaction.
+          if (!toasted.has(c.signature)) toasted.add(c.signature) && toast({
+            title: t.status === "failed" ? "Your transaction failed" : t.sealedId ? "Your sealed transfer opened and is final" : "Your transaction is final",
+            body: t.status === "failed" ? t.err ?? undefined : `${took.toLocaleString("en-US")} ms from your click`,
+            href: `/tx/${t.signature}`,
+          });
           setHistory((h) => [next, ...h.filter((x) => x.signature !== next.signature)].slice(0, 8));
           refresh();
         }

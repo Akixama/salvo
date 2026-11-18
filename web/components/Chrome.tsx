@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { BRAND } from "@/lib/brand";
-import { useNet } from "@/lib/net";
+import { useNet, useNow } from "@/lib/net";
+import { describe } from "./Activity";
 import { int, ms } from "@/lib/format";
 import { Mark } from "./icons";
 import { Ind } from "./ui";
@@ -11,6 +13,7 @@ import { Ind } from "./ui";
 const NAV = [
   { href: "/net", label: "Net" },
   { href: "/send", label: "Send" },
+  { href: "/mine", label: "Mine" },
   { href: "/faucet", label: "Faucet" },
   { href: "/lab", label: "Fault Lab" },
   { href: "/docs", label: "Docs" },
@@ -41,12 +44,73 @@ export function Header() {
             <span className="mono">{s ? int(s.slot) : "—"}</span>
             <span className="muted mono">{s?.gapMs.p50 != null ? `${ms(s.gapMs.p50, 1)} ms` : ""}</span>
           </Link>
+          <Bell />
           <Link href="/faucet" className="btn btn-primary">
             Get test SOL
           </Link>
         </div>
       </div>
     </header>
+  );
+}
+
+/** Notable events since this tab opened (sends, faucet grants, lab runs), not the background load. */
+function Bell() {
+  const net = useNet();
+  const now = useNow(1000);
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+  const items = net.activity.filter((a) => a.source !== "traffic").slice(0, 8);
+  return (
+    <div className="bell" ref={box}>
+      <button
+        className="btn btn-ghost"
+        style={{ width: 36, padding: 0 }}
+        aria-label={`Activity${net.unseen ? `, ${net.unseen} new` : ""}`}
+        onClick={() => {
+          setOpen((o) => !o);
+          net.markSeen();
+        }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+        </svg>
+      </button>
+      {net.unseen > 0 && <span className="bell-count">{net.unseen > 99 ? "99+" : net.unseen}</span>}
+      {open && (
+        <div className="menu">
+          <div className="muted" style={{ fontSize: 12, padding: "6px 8px" }}>
+            On the net, newest first
+          </div>
+          {items.length ? (
+            items.map((a) => {
+              const d = describe(a);
+              return (
+                <Link key={`${a.kind}-${a.atUs}`} href={d.href ?? "/net"} className="menu-row" onClick={() => setOpen(false)}>
+                  {d.mark}
+                  <span style={{ display: "grid", minWidth: 0 }}>
+                    <span>{d.title}</span>
+                    <span className="muted" style={{ fontSize: 12 }}>
+                      {d.meta} · {Math.max(0, Math.round((now - a.atUs / 1000) / 1000))}s ago
+                    </span>
+                  </span>
+                </Link>
+              );
+            })
+          ) : (
+            <div className="menu-row muted">Nothing yet. Sends, faucet grants and Fault Lab runs show here.</div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -163,6 +163,12 @@ pub struct NetState {
     pub txs: HashMap<String, TxRecord>,
     pub tx_order: VecDeque<String>,
     pub tx_ids: HashMap<[u8; 32], String>,
+    /// Recent signatures per account, newest last, for the "Mine" page.
+    pub by_address: HashMap<String, VecDeque<String>>,
+    /// The latest notable events (sealed reveals, sends, faucet grants, lab runs), newest last,
+    /// so a new visitor sees what just happened with real timestamps.
+    pub recent_activity: VecDeque<Value>,
+    last_traffic_activity_us: u64,
     pub instances: Vec<InstanceStatus>,
     pub validators: Vec<ValidatorInfo>,
     pub stats: Stats,
@@ -189,6 +195,9 @@ impl NetState {
             txs: HashMap::new(),
             tx_order: VecDeque::new(),
             tx_ids: HashMap::new(),
+            by_address: HashMap::new(),
+            recent_activity: VecDeque::new(),
+            last_traffic_activity_us: 0,
             instances: (0..k as u16).map(|i| InstanceStatus { instance: i, ..Default::default() }).collect(),
             validators: validators
                 .into_iter()
@@ -253,6 +262,45 @@ impl NetState {
         self.blocks.get((slot - first) as usize)
     }
 
+    /// A real event worth showing on the live strip. `fields` must be a JSON object.
+    pub fn activity(&mut self, kind: &str, mut fields: Value) {
+        // Background sealed transfers arrive several times a second; show one every 1.5 s so
+        // rarer events (sends, faucet grants, lab runs) stay visible.
+        if kind == "sealed" && fields["source"] == "traffic" {
+            let now = crate::types::now_us();
+            if now.saturating_sub(self.last_traffic_activity_us) < 1_500_000 {
+                return;
+            }
+            self.last_traffic_activity_us = now;
+        }
+        if let Some(o) = fields.as_object_mut() {
+            o.insert("type".into(), json!("activity"));
+            o.insert("kind".into(), json!(kind));
+            o.entry("atUs").or_insert(json!(crate::types::now_us()));
+        }
+        self.recent_activity.push_back(fields.clone());
+        while self.recent_activity.len() > 40 {
+            self.recent_activity.pop_front();
+        }
+        self.push_event(fields);
+    }
+
+    pub fn index_tx(&mut self, sig: &str, accounts: &[String]) {
+        for a in accounts {
+            let list = self.by_address.entry(a.clone()).or_default();
+            if list.back().map(|s| s == sig).unwrap_or(false) {
+                continue;
+            }
+            list.push_back(sig.to_string());
+            while list.len() > 50 {
+                list.pop_front();
+            }
+        }
+        if self.by_address.len() > 50_000 {
+            self.by_address.retain(|_, v| v.len() > 1);
+        }
+    }
+
     pub fn add_tx(&mut self, rec: TxRecord, id: [u8; 32]) {
         if self.txs.contains_key(&rec.signature) {
             return;
@@ -283,6 +331,8 @@ impl NetState {
             "deltaMs": self.delta_ms,
             "targetGapMs": self.delta_ms as f64 / self.k as f64,
             "timeoutMs": self.timeout_ms,
+            "quorum": self.n - (self.n - 1) / 3,
+            "sealThreshold": (self.n - 1) / 3 + 1,
             "slot": s.merged,
             "transactions": s.txs,
             "failedTransactions": s.failed_txs,

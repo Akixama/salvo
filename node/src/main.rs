@@ -87,7 +87,7 @@ async fn main() -> anyhow::Result<()> {
                 traffic,
                 observer_city: geo::City::FRA,
             });
-            let lab = lab::Lab::new(Params { k: lab_k, n: lab_n, ..params.clone() });
+            let lab = lab::Lab::new(Params { k: lab_k, n: lab_n, ..params.clone() }, net.state.clone());
             let gw = rpc::Gateway::new(net.clone(), lab, trust_proxy);
             let addr: SocketAddr = format!("{bind}:{port}").parse()?;
             let ps_addr: SocketAddr = format!("{bind}:{}", port + 1).parse()?;

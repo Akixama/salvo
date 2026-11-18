@@ -65,14 +65,16 @@ const RECOVER_S: u64 = 5;
 
 pub struct Lab {
     params: Params,
+    /// The live net's state, where run starts and results show up as activity.
+    main: crate::state::SharedState,
     runs: Mutex<HashMap<String, Value>>,
     busy: AtomicBool,
     counter: AtomicU64,
 }
 
 impl Lab {
-    pub fn new(params: Params) -> Arc<Lab> {
-        Arc::new(Lab { params, runs: Mutex::new(HashMap::new()), busy: AtomicBool::new(false), counter: AtomicU64::new(0) })
+    pub fn new(params: Params, main: crate::state::SharedState) -> Arc<Lab> {
+        Arc::new(Lab { params, main, runs: Mutex::new(HashMap::new()), busy: AtomicBool::new(false), counter: AtomicU64::new(0) })
     }
 
     pub fn scenarios_json(&self) -> Value {
@@ -119,6 +121,7 @@ impl Lab {
                 }
             }
         }
+        self.main.write().activity("lab", json!({ "runId": id, "title": sc.title, "status": "started" }));
         let lab = self.clone();
         let rid = id.clone();
         tokio::spawn(async move {
@@ -259,7 +262,9 @@ impl Lab {
             })
         };
         net.stop();
+        let verdict = report["verdict"].as_str().unwrap_or("").to_string();
         self.update(&id, report);
+        self.main.write().activity("lab", json!({ "runId": id, "title": sc.title, "status": "done", "verdict": verdict }));
     }
 
     fn update(&self, id: &str, patch: Value) {

@@ -1,80 +1,44 @@
 import Link from "next/link";
-import { Fragment } from "react";
 import { BRAND, PUBLIC_RPC_LABEL } from "@/lib/brand";
 import { LiveStats, LiveDiagramCard, LatestBlocks } from "@/components/Live";
+import { ActivityStrip } from "@/components/Activity";
+import { HowItWorks, LiveCounts, RealTable } from "@/components/HomeSections";
 import { ArrowRight, External } from "@/components/icons";
 import { CopyButton } from "@/components/ui";
-
-const STEPS = [
-  {
-    n: "01",
-    title: "Seal",
-    body: "Your wallet encrypts the transaction and splits the key into 10 pieces, one locked to each validator. Any 4 pieces open it; 3 colluding validators cannot.",
-  },
-  {
-    n: "02",
-    title: "Stagger",
-    body: "24 consensus instances run side by side on the same 10 validators. Instance k proposes on the same 240 ms beat as the others, shifted by k × 10 ms, so a new block goes out every 10 ms.",
-  },
-  {
-    n: "03",
-    title: "Vote",
-    body: "Each instance is a small Simplex protocol. Validators sign a notarize vote for the proposal, then a finalize vote. 7 of 10 matching votes make a certificate. A silent leader's view times out and is skipped.",
-  },
-  {
-    n: "04",
-    title: "Merge",
-    body: "Finalized blocks from all instances are read in (view, instance) order, the Gatling rule. Every node gets the same single log without another round of voting.",
-  },
-  {
-    n: "05",
-    title: "Reveal",
-    body: "Only once a block is final does each validator release its piece of the key for the sealed transactions in it. The order was fixed before anyone could see what was being ordered.",
-  },
-  {
-    n: "06",
-    title: "Execute",
-    body: "The merged log runs on the Solana runtime (LiteSVM). Transactions and programs are unchanged. A transaction two leaders both picked up runs once.",
-  },
-];
-
-const REAL = [
-  ["Consensus", "Real. Every validator is its own actor with its own key; votes are Ed25519-signed and checked."],
-  ["Merge rule", "Real. The (view, instance) cursor from the paper's reference prototype."],
-  ["Solana runtime", "Real. LiteSVM runs your transactions, fees and programs."],
-  ["Sealing", "Real. AES-256-GCM and X25519, with the key split 4-of-10 (Shamir). Up to 3 colluding validators cannot open a transaction early. Fees cannot be checked before it opens, so sealed sends are rate limited."],
-  ["Numbers", "Measured on this net, live. Targets are labelled as targets."],
-  ["Geography", "Simulated. All validators run on one server; messages between Frankfurt, London, New York, Tokyo and Singapore are delayed by real-world one-way times."],
-  ["Execution", "One executor follows the merged log and publishes a log hash per block."],
-  ["State", "Starts fresh on every restart. Test SOL has no value."],
-];
 
 export default function Home() {
   return (
     <>
-      <section className="wrap" style={{ paddingTop: 72 }}>
-        <div className="fade-up" style={{ maxWidth: 760 }}>
-          <div className="eyebrow">Gatling consensus · live test net</div>
-          <h1 style={{ fontSize: "clamp(40px, 6.4vw, 68px)", lineHeight: 1.04, letterSpacing: "-0.03em", fontWeight: 500, margin: "16px 0 20px" }}>
-            Solana, a block
-            <br />
-            every <span className="accent">10 ms</span>
-          </h1>
-          <p className="lead">
-            {BRAND.name} runs 24 consensus rounds side by side and merges them into one log, so a block lands every 10 ms. Transactions can go in sealed: no leader can read them until their place in the order is final. Your Solana programs run unchanged.
-          </p>
-          <div style={{ display: "flex", gap: 12, marginTop: 32, flexWrap: "wrap" }}>
-            <Link href="/net" className="btn btn-primary btn-lg">
-              Open the net
-            </Link>
-            <Link href="/send" className="btn btn-lg">
-              Send a transaction
-            </Link>
+      <section className="wrap" style={{ paddingTop: 48 }}>
+        <div className="hero fade-up">
+          <div>
+            <div className="eyebrow">Gatling consensus · live test net</div>
+            <h1 style={{ fontSize: "clamp(38px, 5.6vw, 64px)", lineHeight: 1.04, letterSpacing: "-0.03em", fontWeight: 500, margin: "14px 0 16px" }}>
+              Solana, a block
+              <br />
+              every <span className="accent">10 ms</span>
+            </h1>
+            <p className="lead" style={{ maxWidth: 560 }}>
+              Many leaders at once, merged into one log. Send it sealed and no leader can read it until its place in the order is final.
+            </p>
+            <div style={{ display: "flex", gap: 12, marginTop: 24, flexWrap: "wrap" }}>
+              <Link href="/send" className="btn btn-primary btn-lg">
+                Send a sealed transaction
+              </Link>
+              <Link href="/net" className="btn btn-lg">
+                Watch the net
+              </Link>
+            </div>
           </div>
+          <LiveCounts />
         </div>
       </section>
 
-      <section className="wrap" style={{ paddingTop: 48 }}>
+      <section className="wrap" style={{ paddingTop: 28 }}>
+        <ActivityStrip />
+      </section>
+
+      <section className="wrap" style={{ paddingTop: 12 }}>
         <LiveDiagramCard />
       </section>
 
@@ -85,20 +49,10 @@ export default function Home() {
       <section className="wrap section">
         <div className="eyebrow">How a salvo works</div>
         <h2 className="h2">Order first, reveal after</h2>
-        <p className="lead">Solana mainnet has one leader at a time and a slot every 400 ms, and that leader sees every transaction it orders. Salvo runs many leaders at once so blocks come every 10 ms, and seals transactions so the leaders ordering them cannot read them.</p>
-        <div className="grid-3" style={{ marginTop: 32 }}>
-          {STEPS.map((s) => (
-            <div key={s.n} className="card card-pad">
-              <div className="mono accent" style={{ fontSize: 13 }}>
-                {s.n}
-              </div>
-              <div style={{ fontSize: 18, fontWeight: 500, margin: "8px 0 8px" }}>{s.title}</div>
-              <div className="text-2" style={{ fontSize: 14 }}>
-                {s.body}
-              </div>
-            </div>
-          ))}
-        </div>
+        <p className="lead">
+          Solana mainnet has one leader at a time and a slot every 400 ms, and that leader sees every transaction it orders. {BRAND.name} runs many leaders at once so blocks come every 10 ms, and seals transactions so the leaders ordering them cannot read them.
+        </p>
+        <HowItWorks />
       </section>
 
       <section className="wrap section-tight">
@@ -122,8 +76,8 @@ export default function Home() {
                 Read the docs
                 <ArrowRight size={16} />
               </Link>
-              <Link href="/send" className="btn btn-ghost">
-                Try it in the browser
+              <Link href="/mine" className="btn btn-ghost">
+                Look up an address
               </Link>
             </div>
           </div>
@@ -158,14 +112,7 @@ export default function Home() {
               Said plainly, so you do not have to dig
             </span>
           </div>
-          <div className="kv">
-            {REAL.map(([k, v]) => (
-              <Fragment key={k}>
-                <div>{k}</div>
-                <div className="text-2">{v}</div>
-              </Fragment>
-            ))}
-          </div>
+          <RealTable />
         </div>
       </section>
     </>
