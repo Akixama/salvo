@@ -4,7 +4,9 @@ name: salvo
 services:
   node:
     build: { context: .., dockerfile: deploy/Dockerfile }
-    command: ["--seed", "${SALVO_SEED:-salvo-net}", "--traffic", "${SALVO_TRAFFIC:-25}"]
+    environment:
+      SALVO_SEED: "${SALVO_SEED:?set SALVO_SEED}"
+      SALVO_TRAFFIC: "${SALVO_TRAFFIC:-10}"
     restart: unless-stopped
   caddy:
     image: caddy:2

@@ -1,7 +1,7 @@
-# rpc.<domain> serves JSON-RPC, REST and /events; ws.<domain> serves Solana pubsub.
+# rpc.<domain> serves JSON-RPC, REST, /events and Solana pubsub (WebSocket on /); ws.<domain> is kept as an alias.
 rpc.{$SALVO_DOMAIN} {
 	reverse_proxy node:8899
 }
 ws.{$SALVO_DOMAIN} {
-	reverse_proxy node:8900
+	reverse_proxy node:8899
 }

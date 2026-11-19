@@ -100,7 +100,9 @@ impl Gateway {
 
 pub fn router(app: App) -> Router {
     Router::new()
-        .route("/", post(rpc_http))
+        // JSON-RPC on POST /, and Solana pubsub on a WebSocket upgrade of the same path, so a host
+        // that exposes one port (Railway, Fly) serves both.
+        .route("/", post(rpc_http).get(pubsub_ws))
         .route("/health", get(|| async { "ok" }))
         .route("/events", get(events_ws))
         .route("/v1/net", get(v1_net))

@@ -25,9 +25,10 @@ struct Cli {
 enum Cmd {
     /// Run the net: validators, the gateway, the Fault Lab.
     Up {
-        #[arg(long, default_value = "127.0.0.1")]
+        #[arg(long, env = "SALVO_BIND", default_value = "127.0.0.1")]
         bind: String,
-        #[arg(long, default_value_t = 8899)]
+        /// RPC port; pubsub is also served on port + 1. Hosts like Railway set PORT.
+        #[arg(long, env = "PORT", default_value_t = 8899)]
         port: u16,
         /// Validators.
         #[arg(long, default_value_t = 10)]
