@@ -566,25 +566,55 @@ async fn v1_lab_run(State(app): State<App>, Path(id): Path<String>) -> Response 
 
 // ---------- event stream for the site ----------
 
-async fn events_ws(State(app): State<App>, ws: WebSocketUpgrade) -> Response {
-    ws.on_upgrade(move |socket| events_loop(app, socket))
+#[derive(Deserialize)]
+struct EventsQuery {
+    /// 1: send each message deflate-compressed (raw deflate) in a binary frame.
+    z: Option<u8>,
 }
 
-async fn events_loop(app: App, mut socket: WebSocket) {
+async fn events_ws(State(app): State<App>, Query(q): Query<EventsQuery>, ws: WebSocketUpgrade) -> Response {
+    let z = q.z == Some(1);
+    ws.on_upgrade(move |socket| events_loop(app, socket, z))
+}
+
+/// How far behind a viewer may fall before the stream holds back everything but stats.
+const MAX_BEHIND_US: u64 = 1_200_000;
+
+fn frame(text: &str, z: bool) -> WsMessage {
+    if z {
+        // The feed is repetitive JSON; deflate makes it several times smaller, which matters
+        // over a slow upload or tunnel. Browsers inflate it with DecompressionStream.
+        WsMessage::Binary(miniz_oxide::deflate::compress_to_vec(text.as_bytes(), 6).into())
+    } else {
+        WsMessage::Text(text.to_owned().into())
+    }
+}
+
+async fn events_loop(app: App, mut socket: WebSocket, z: bool) {
     let (snapshot, mut rx) = {
         let st = app.net.state.read();
         let recent: Vec<Value> = st.blocks.iter().rev().take(240).map(block_summary).collect();
         let snap = json!({ "type": "snapshot", "stats": st.stats_json(), "instances": st.instances, "validators": st.validators, "recentBlocks": recent, "recentActivity": st.recent_activity });
         (snap.to_string(), st.events.subscribe())
     };
-    if socket.send(WsMessage::Text(snapshot.into())).await.is_err() {
+    if socket.send(frame(&snapshot, z)).await.is_err() {
         return;
     }
+    // A proxy or tunnel in front of the node can buffer a lot, so a slow viewer does not slow
+    // our sends; the backlog just grows. Viewers that ack the server time in each stats message
+    // tell us how far behind they are; past MAX_BEHIND_US we send only stats (small, and what
+    // the acks ride on) until they catch up. Viewers that never ack get everything, as before.
+    let mut acked_us: Option<u64> = None;
     loop {
         tokio::select! {
             msg = rx.recv() => match msg {
                 Ok(m) => {
-                    if socket.send(WsMessage::Text(m.as_str().to_owned().into())).await.is_err() {
+                    let behind = acked_us.map(|a| now_us().saturating_sub(a) > MAX_BEHIND_US).unwrap_or(false);
+                    // serde_json sorts keys, so look for the tag rather than a prefix.
+                    if behind && !m.contains("\"type\":\"stats\"") {
+                        continue;
+                    }
+                    if socket.send(frame(m.as_str(), z)).await.is_err() {
                         return;
                     }
                 }
@@ -592,6 +622,13 @@ async fn events_loop(app: App, mut socket: WebSocket) {
                 Err(_) => return,
             },
             incoming = socket.recv() => match incoming {
+                Some(Ok(WsMessage::Text(t))) => {
+                    if let Ok(v) = serde_json::from_str::<Value>(t.as_str()) {
+                        if let Some(a) = v.get("ack").and_then(|a| a.as_u64()) {
+                            acked_us = Some(a);
+                        }
+                    }
+                }
                 Some(Ok(WsMessage::Close(_))) | None | Some(Err(_)) => return,
                 _ => {}
             }

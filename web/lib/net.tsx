@@ -92,6 +92,12 @@ export type TxEvent = { signature: string; status: string; slot?: number; err?: 
 
 type Listener = () => void;
 
+/** Unpack one raw-deflate frame from the node's compressed feed. */
+async function inflate(buf: ArrayBuffer): Promise<string> {
+  const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Response(stream).text();
+}
+
 /** One live connection to the net per tab. Components read from it with hooks. */
 class NetStore {
   stats: Stats | null = null;
@@ -123,12 +129,18 @@ class NetStore {
 
   private connect() {
     let ws: WebSocket;
+    // Ask for the compressed feed when this browser can inflate it: about 4x less to carry,
+    // which keeps the feed live over a slow upload or tunnel. Older nodes ignore the flag.
+    const z = typeof DecompressionStream !== "undefined";
     try {
-      ws = new WebSocket(EVENTS_URL);
+      ws = new WebSocket(z ? EVENTS_URL + (EVENTS_URL.includes("?") ? "&" : "?") + "z=1" : EVENTS_URL);
     } catch {
       this.scheduleReconnect();
       return;
     }
+    ws.binaryType = "arraybuffer";
+    // Inflating is async; chain it so messages are handled in the order they arrived.
+    let queue: Promise<void> = Promise.resolve();
     this.ws = ws;
     ws.onopen = () => {
       this.connected = true;
@@ -143,11 +155,18 @@ class NetStore {
     };
     ws.onerror = () => ws.close();
     ws.onmessage = (m) => {
-      try {
-        this.handle(JSON.parse(m.data));
-      } catch {
-        /* ignore malformed */
-      }
+      const data = m.data;
+      queue = queue.then(async () => {
+        try {
+          const text = typeof data === "string" ? data : await inflate(data);
+          const msg = JSON.parse(text);
+          this.handle(msg);
+          // Tell the node how far we have got, so it can hold back if we fall behind.
+          if (msg.stats?.nowUs && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ ack: msg.stats.nowUs }));
+        } catch {
+          /* ignore malformed */
+        }
+      });
     };
   }
 
@@ -161,10 +180,39 @@ class NetStore {
     return Date.now() + this.clockOffsetMs;
   }
 
+  // Through a slow link (like a free tunnel) the feed arrives in clumps, with pauses of a second
+  // or more. Drawn at real time, every pause would show as an empty stretch on the diagram. So
+  // the diagram runs a little behind, by about as much as the feed has lately been late: a
+  // jitter buffer, as in video streaming. Over a good link the delay stays near zero.
+  private offsets: { at: number; off: number }[] = [];
+  private delayTarget = 60;
+  private delay = 60;
+  private delayAt = 0;
+
+  /** The time the live diagram draws as "now": server time minus the recent lateness of the feed. */
+  viewNow() {
+    const t = Date.now();
+    const dt = this.delayAt ? t - this.delayAt : 0;
+    this.delayAt = t;
+    // Catch up with more lateness quickly, give it back slowly, so the diagram never jerks.
+    const tau = this.delayTarget > this.delay ? 400 : 5000;
+    this.delay += (this.delayTarget - this.delay) * Math.min(1, dt / tau);
+    return this.now() - this.delay;
+  }
+
   private setStats(s: Stats) {
-    const offset = s.nowUs / 1000 - Date.now();
-    // Smooth the offset so the diagram does not jump.
-    this.clockOffsetMs = this.stats ? this.clockOffsetMs * 0.8 + offset * 0.2 : offset;
+    const at = Date.now();
+    const off = s.nowUs / 1000 - at;
+    this.offsets.push({ at, off });
+    while (this.offsets.length && this.offsets[0].at < at - 30000) this.offsets.shift();
+    // A message can arrive late but never early, so the clock difference is the largest offset
+    // seen lately (the fastest message); how far each message falls short of it is its lateness.
+    let best = -Infinity;
+    for (const o of this.offsets) best = Math.max(best, o.off);
+    this.clockOffsetMs = best;
+    let late = 0;
+    for (const o of this.offsets) if (o.at >= at - 15000) late = Math.max(late, best - o.off);
+    this.delayTarget = Math.min(3000, late + 60);
     this.stats = s;
   }
 
@@ -209,7 +257,8 @@ class NetStore {
       // The first batch after connecting can repeat blocks already in the snapshot.
       if (this.blocks.length && b.slot <= this.blocks[0].slot) return;
       this.blocks.unshift(b);
-      if (this.blocks.length > 400) this.blocks.length = 400;
+      // About 6 s of blocks: the diagram's window plus the jitter delay.
+      if (this.blocks.length > 600) this.blocks.length = 600;
       this.blockListeners.forEach((f) => f(b));
     } else if (e.type === "tx") {
       this.txListeners.forEach((f) => f(e));
@@ -231,7 +280,8 @@ class NetStore {
   }
 
   private pruneCells() {
-    const cutoff = this.now() - 4000;
+    // Enough history for the diagram's window plus the jitter delay (up to 3 s).
+    const cutoff = this.now() - 6000;
     for (const [k, c] of this.cells) if (c.t < cutoff) this.cells.delete(k);
   }
 

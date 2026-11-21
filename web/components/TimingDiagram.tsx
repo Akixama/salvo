@@ -68,7 +68,8 @@ export function TimingDiagram({ rowHeight = 9, pastMs = 1400, futureMs = 360, la
       const labelW = labels && !narrow ? 64 : 8;
       const plotW = Math.max(10, w - labelW - 8);
       const pxPerMs = plotW / (past + future);
-      const now = store.now();
+      // A little behind real time over a clumpy link, so late blocks land before they are drawn.
+      const now = store.viewNow();
       const xNow = labelW + past * pxPerMs;
       const X = (t: number) => xNow + (t - now) * pxPerMs;
       const rh = rowHeight;
@@ -131,7 +132,12 @@ export function TimingDiagram({ rowHeight = 9, pastMs = 1400, futureMs = 360, la
 
       // proposals
       const mw = Math.max(2, Math.min(4, pxPerMs * 4));
-      for (const c of store.cells.values()) {
+      for (const c0 of store.cells.values()) {
+        // The diagram runs a little behind real time, so data can arrive "ahead" of its now.
+        // Draw only what had happened by then: nothing past the now line, and a proposal
+        // finalized after it still shows as proposed.
+        if (c0.t > now) continue;
+        const c = c0.s === "f" && c0.tf && c0.tf > now ? { ...c0, s: "p" as const } : c0;
         const x = X(c.t);
         if (x < labelW - 4 || x > w) continue;
         const y = rowsTop + c.i * rh + 1;
@@ -165,6 +171,7 @@ export function TimingDiagram({ rowHeight = 9, pastMs = 1400, futureMs = 360, la
       for (const b of store.blocks) {
         const t = b.proposedAtUs / 1000;
         if (t < now - past - 50) break;
+        if (b.mergedAtUs / 1000 > now) continue;
         const x = X(t);
         if (x < labelW - 2) continue;
         const age = now - b.mergedAtUs / 1000;
