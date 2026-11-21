@@ -41,21 +41,41 @@ start_node() {
   return 1
 }
 
-# Starts a quick tunnel and sets TUNNEL_URL and TUNNEL_PID; returns 1 if no address comes. It
-# is called directly, not inside $(...): in Git Bash a background process started inside
-# command substitution keeps it from returning.
+# Starts a quick tunnel and sets TUNNEL_URL and TUNNEL_PID; returns 1 unless the tunnel is up
+# and answering from the internet. It is called directly, not inside $(...): in Git Bash a
+# background process started inside command substitution keeps it from returning.
 tunnel() {
-  local port=$1 log="$STATE_DIR/tunnel-$1.log"
+  local port=$1 log="$STATE_DIR/tunnel-$1.log" url=""
   rm -f "$log"
   "$CLOUDFLARED" tunnel --no-autoupdate --url "http://localhost:$port" > "$log" 2>&1 < /dev/null &
   TUNNEL_PID=$!
   TUNNEL_URL=""
   for _ in $(seq 1 60); do
-    TUNNEL_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$log" 2>/dev/null | head -1 || true)
-    [ -n "$TUNNEL_URL" ] && return 0
+    # Only the address Cloudflare hands out, never one quoted in an error: when its service
+    # is slow, the log says 'failed to request quick Tunnel: Post "https://api.trycloudflare.com/..."'.
+    url=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$log" 2>/dev/null | grep -v '^https://api\.' | head -1 || true)
+    [ -n "$url" ] && break
+    if ! alive "$TUNNEL_PID"; then
+      say "The tunnel for port $port could not start: $(grep -m1 -i 'failed\|error' "$log" 2>/dev/null | cut -c1-160)" >&2
+      return 1
+    fi
     sleep 1
   done
-  say "No tunnel address for port $port; see $log" >&2
+  if [ -z "$url" ]; then
+    say "No tunnel address for port $port; see $log" >&2
+    kill "$TUNNEL_PID" 2>/dev/null || true
+    return 1
+  fi
+  # A new name can take a few seconds to resolve. Deploy only once it answers from outside
+  # (anything but "unreachable" 000 or Cloudflare's "tunnel not connected" 530).
+  local c=000
+  for _ in $(seq 1 40); do
+    c=$(status "$url/")
+    [[ $c != 000 && $c != 530 ]] && { TUNNEL_URL=$url; return 0; }
+    alive "$TUNNEL_PID" || break
+    sleep 3
+  done
+  say "The tunnel for port $port never answered ($c); see $log" >&2
   kill "$TUNNEL_PID" 2>/dev/null || true
   return 1
 }
@@ -69,7 +89,15 @@ deploy() {
 }
 
 # HTTP status of a URL, or 000 when it cannot be reached (a dropped tunnel's name stops resolving).
-status() { curl -s -m 15 -o /dev/null -w '%{http_code}' "$1" 2>/dev/null || true; }
+# Names are looked up through Cloudflare's DNS (1.1.1.1) first: a brand-new tunnel name is not
+# published for a moment, and Windows then remembers "no such name" for minutes, which made a
+# healthy new tunnel look dead. The system resolver is the fallback if 1.1.1.1 is unreachable.
+status() {
+  local c
+  c=$(curl -s -m 15 -o /dev/null -w '%{http_code}' --doh-url https://1.1.1.1/dns-query "$1" 2>/dev/null || true)
+  [ "$c" = 000 ] && c=$(curl -s -m 15 -o /dev/null -w '%{http_code}' "$1" 2>/dev/null || true)
+  echo "${c:-000}"
+}
 alive() { kill -0 "$1" 2>/dev/null; }
 rpc_ok() { alive "$RPC_PID" && [ "$(status "$RPC/health")" = 200 ]; }
 # The pubsub port answers a plain GET with 400 (it wants a WebSocket); any 4xx but 404 is ours.
@@ -86,22 +114,27 @@ if ! node_up; then
 fi
 
 say "Opening tunnels"
-tunnel 8899 || exit 1
+# Cloudflare's free tunnel service is sometimes slow or down for a while; keep trying rather
+# than give up and leave the site offline.
+until tunnel 8899; do say "Trying the RPC tunnel again in 15 s"; sleep 15; done
 RPC=$TUNNEL_URL RPC_PID=$TUNNEL_PID
-tunnel 8900 || exit 1
+until tunnel 8900; do say "Trying the pubsub tunnel again in 15 s"; sleep 15; done
 PUB=$TUNNEL_URL PUB_PID=$TUNNEL_PID
 say "RPC:    $RPC"
 say "Pubsub: ${PUB/https/wss}"
 
 say "Deploying the site"
-deploy
+need_deploy=0
+deploy || { need_deploy=1; say "The deploy failed; will try again" >&2; }
 
 echo
 say "Live. Keep this window open to stay online. Checking every ${CHECK_EVERY}s."
 
+# From here on nothing may stop the watch: a stray failed command must not end the script
+# (with set -e it did, and the site stayed down until someone noticed).
+set +e
 rpc_fails=0
 pub_fails=0
-need_deploy=0
 while true; do
   sleep "$CHECK_EVERY"
 
