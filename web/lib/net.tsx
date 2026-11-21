@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { EVENTS_URL, RPC_URL } from "./brand";
+import { sharedWatch } from "./finality";
 
 export type Stats = {
   name: string;
@@ -284,6 +285,8 @@ const Ctx = createContext<NetStore>(store);
 
 export function NetProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => store.start(), []);
+  // Open the finality socket now: through a slow tunnel a new connection can take seconds.
+  useEffect(() => void sharedWatch(), []);
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
 }
 
@@ -335,7 +338,10 @@ export function useNow(everyMs = 1000) {
 }
 
 export async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(RPC_URL + path, { ...init, headers: { "content-type": "application/json", ...(init?.headers || {}) }, cache: "no-store" });
+  // Only send a JSON content type with a body: on a GET it would make the browser ask the
+  // (cross-origin) node for permission first, an extra round trip on every call.
+  const headers = init?.body ? { "content-type": "application/json", ...(init?.headers || {}) } : init?.headers;
+  const r = await fetch(RPC_URL + path, { ...init, headers, cache: "no-store" });
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(body.error || `Request failed (${r.status})`);
   return body as T;

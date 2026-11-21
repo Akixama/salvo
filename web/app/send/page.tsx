@@ -7,7 +7,8 @@ import { api, rpc, useNetStore } from "@/lib/net";
 import { ms, short, sol } from "@/lib/format";
 import { Addr, Ind } from "@/components/ui";
 import { TxTrail, type TxRec } from "@/components/TxTrail";
-import { seal, type SealKeys } from "@/lib/seal";
+import { envelopeId, seal, type SealKeys } from "@/lib/seal";
+import { base58, sharedWatch, type FinalityWatch } from "@/lib/finality";
 import { toast } from "@/components/Activity";
 import { BigNumbers, PageHero, Panel } from "@/components/PageHero";
 import { Refresh } from "@/components/icons";
@@ -37,8 +38,20 @@ function toBase64(bytes: Uint8Array) {
   return btoa(s);
 }
 
-type Sent = { signature: string; clickedAt: number; acceptedAt?: number; finalSeenAt?: number; tx?: TxRec; error?: string; label: string };
+type Sent = {
+  /** What the net calls it while it is in flight: the envelope id for a sealed send. */
+  signature: string;
+  /** The real Solana signature, known in this browser as soon as it is signed. */
+  sig: string;
+  sealed: boolean;
+  clickedAt: number;
+  acceptedAt?: number;
+  finalSeenAt?: number;
+  tx?: TxRec;
+  label: string;
+};
 
+/** Stage times for the trail. Finality itself is pushed (see FinalityWatch); this only fills in the stages. */
 function useTxWatch(sig: string | null, onUpdate: (t: TxRec) => void) {
   useEffect(() => {
     if (!sig) return;
@@ -72,16 +85,34 @@ export default function SendPage() {
   const [busy, setBusy] = useState(false);
   const [sealed, setSealed] = useState(true);
   const sealKeys = useRef<SealKeys | null>(null);
+  const blockhash = useRef<{ h: string; at: number } | null>(null);
+  const watcher = useRef<FinalityWatch | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [current, setCurrent] = useState<Sent | null>(null);
   const [history, setHistory] = useState<Sent[]>([]);
   const currentRef = useRef<Sent | null>(null);
   currentRef.current = current;
 
+  const fetchBlockhash = useCallback(async () => {
+    const r = await rpc<{ value: { blockhash: string } }>("getLatestBlockhash", []);
+    blockhash.current = { h: r.value.blockhash, at: Date.now() };
+    return r.value.blockhash;
+  }, []);
+
   useEffect(() => {
     setMe(loadBurner());
     setTo(Keypair.generate().publicKey.toBase58());
-  }, []);
+    // Everything a send needs is fetched now, so the click itself is one request.
+    watcher.current = sharedWatch();
+    rpc<SealKeys>("salvo_getSealKeys")
+      .then((k) => (sealKeys.current = k))
+      .catch(() => {});
+    fetchBlockhash().catch(() => {});
+    const id = setInterval(() => fetchBlockhash().catch(() => {}), 15000);
+    return () => {
+      clearInterval(id);
+    };
+  }, [fetchBlockhash]);
 
   const refresh = useCallback(async () => {
     if (!me) return;
@@ -95,34 +126,58 @@ export default function SendPage() {
 
   useEffect(() => {
     refresh();
+    // Also keeps the connection to the node warm for the next send.
     const id = setInterval(refresh, 1500);
     return () => clearInterval(id);
   }, [refresh]);
 
-  const onUpdate = useCallback(
-    (t: TxRec) => {
+  /** The send is final: stop the clock once, toast once. */
+  const finish = useCallback(
+    (sig: string, failed: boolean, err?: string | null) => {
       setCurrent((c) => {
-        // A sealed send is tracked by its envelope id; once opened, the record is the real transaction.
-        if (!c || (c.signature !== t.signature && c.signature !== t.sealedId)) return c;
-        const done = t.status === "finalized" || t.status === "failed";
-        const next = { ...c, tx: t, finalSeenAt: done && !c.finalSeenAt ? performance.now() : c.finalSeenAt };
-        if (done && !c.finalSeenAt) {
-          const took = Math.round((next.finalSeenAt ?? performance.now()) - c.clickedAt);
-          // State updaters can run twice in development; toast once per transaction.
-          if (!toasted.has(c.signature)) toasted.add(c.signature) && toast({
-            title: t.status === "failed" ? "Your transaction failed" : t.sealedId ? "Your sealed transfer opened and is final" : "Your transaction is final",
-            body: t.status === "failed" ? t.err ?? undefined : `${took.toLocaleString("en-US")} ms from your click`,
-            href: `/tx/${t.signature}`,
+        if (!c || c.sig !== sig || c.finalSeenAt) return c;
+        const next = { ...c, finalSeenAt: performance.now() };
+        const took = Math.round(next.finalSeenAt - c.clickedAt);
+        // State updaters can run twice in development; toast once per transaction.
+        if (!toasted.has(sig)) {
+          toasted.add(sig);
+          toast({
+            title: failed ? "Your transaction failed" : c.sealed ? "Your sealed transfer opened and is final" : "Your transaction is final",
+            body: failed ? err ?? undefined : `${took.toLocaleString("en-US")} ms from your click`,
+            href: `/tx/${sig}`,
           });
-          setHistory((h) => [next, ...h.filter((x) => x.signature !== next.signature)].slice(0, 8));
-          refresh();
         }
+        setHistory((h) => [next, ...h.filter((x) => x.sig !== sig)].slice(0, 8));
         return next;
       });
+      refresh();
     },
     [refresh]
   );
+
+  const onUpdate = useCallback(
+    (t: TxRec) => {
+      // A sealed send is tracked by its envelope id; once opened, the record is the real transaction.
+      const ours = (c: Sent | null): c is Sent => !!c && (c.signature === t.signature || c.signature === t.sealedId || c.sig === t.signature);
+      const c = currentRef.current;
+      if (!ours(c)) return;
+      setCurrent((x) => (ours(x) ? { ...x, tx: t } : x));
+      // If the push was missed, the stage poll still stops the clock.
+      if (t.status === "finalized" || t.status === "failed") finish(c.sig, t.status === "failed", t.err);
+    },
+    [finish]
+  );
   useTxWatch(current?.signature ?? null, onUpdate);
+
+  /** Start the clock and listen for finality before the request leaves, so the push cannot be missed. */
+  function start(s: Omit<Sent, "clickedAt">, clickedAt: number) {
+    watcher.current?.watch(s.sig, (d) => finish(s.sig, d.err != null, d.err != null ? String(d.err) : null));
+    setCurrent({ ...s, clickedAt });
+  }
+  const accepted = (sig: string) => {
+    const at = performance.now();
+    setCurrent((c) => (c?.sig === sig ? { ...c, acceptedAt: at } : c));
+  };
 
   async function faucet() {
     if (!me) return;
@@ -130,8 +185,9 @@ export default function SendPage() {
     setError(null);
     const clickedAt = performance.now();
     try {
-      const r = await api<{ signature: string }>("/v1/faucet", { method: "POST", body: JSON.stringify({ address: me.publicKey.toBase58() }) });
-      setCurrent({ signature: r.signature, clickedAt, acceptedAt: performance.now(), label: "Faucet grant, 2 SOL" });
+      const sig = await rpc<string>("requestAirdrop", [me.publicKey.toBase58(), 2e9]);
+      start({ signature: sig, sig, sealed: false, label: "Faucet grant, 2 SOL" }, clickedAt);
+      accepted(sig);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -156,22 +212,30 @@ export default function SendPage() {
     }
     setBusy(true);
     const clickedAt = performance.now();
+    let sig = "";
     try {
-      const bh = await rpc<{ value: { blockhash: string } }>("getLatestBlockhash", []);
-      const tx = new Transaction({ feePayer: me.publicKey, recentBlockhash: bh.value.blockhash }).add(SystemProgram.transfer({ fromPubkey: me.publicKey, toPubkey: dest, lamports }));
+      const fresh = blockhash.current && Date.now() - blockhash.current.at < 30000;
+      const bh = fresh ? blockhash.current!.h : await fetchBlockhash();
+      // A new blockhash for the next send, so two identical sends never share a signature.
+      blockhash.current = null;
+      fetchBlockhash().catch(() => {});
+      const tx = new Transaction({ feePayer: me.publicKey, recentBlockhash: bh }).add(SystemProgram.transfer({ fromPubkey: me.publicKey, toPubkey: dest, lamports }));
       tx.sign(me);
+      sig = base58(tx.signature!);
       const label = `${amount} SOL to ${short(dest.toBase58())}`;
       if (sealed) {
         // Sealed sends skip the gateway's preflight: nobody can read them to simulate.
-        if (!sealKeys.current) sealKeys.current = await api<SealKeys>("/v1/seal");
+        if (!sealKeys.current) sealKeys.current = await rpc<SealKeys>("salvo_getSealKeys");
         const env = await seal(tx.serialize(), sealKeys.current);
-        const r = await api<{ id: string }>("/v1/sealed", { method: "POST", body: JSON.stringify({ envelope: toBase64(env) }) });
-        setCurrent({ signature: r.id, clickedAt, acceptedAt: performance.now(), label: `${label}, sealed` });
+        start({ signature: envelopeId(env), sig, sealed: true, label: `${label}, sealed` }, clickedAt);
+        await rpc<string>("salvo_sendSealed", [toBase64(env)]);
       } else {
-        const sig = await rpc<string>("sendTransaction", [toBase64(tx.serialize()), { encoding: "base64" }]);
-        setCurrent({ signature: sig, clickedAt, acceptedAt: performance.now(), label });
+        start({ signature: sig, sig, sealed: false, label }, clickedAt);
+        await rpc<string>("sendTransaction", [toBase64(tx.serialize()), { encoding: "base64" }]);
       }
+      accepted(sig);
     } catch (e: any) {
+      if (sig) setCurrent((c) => (c?.sig === sig ? null : c));
       setError(e.message?.includes("insufficient") || e.message?.includes("AccountNotFound") ? "Not enough test SOL. Get some from the faucet first." : e.message);
     } finally {
       setBusy(false);
@@ -258,10 +322,10 @@ export default function SendPage() {
                 <table className="t">
                   <tbody>
                     {history.map((h) => (
-                      <tr key={h.signature}>
+                      <tr key={h.sig}>
                         <td>{h.label}</td>
                         <td className="mono">
-                          <Link href={`/tx/${h.signature}`}>{short(h.signature, 6, 6)}</Link>
+                          <Link href={`/tx/${h.sig}`}>{short(h.sig, 6, 6)}</Link>
                         </td>
                         <td className="r mono">{h.finalSeenAt ? `${ms(h.finalSeenAt - h.clickedAt, 0)} ms` : "—"}</td>
                       </tr>
@@ -291,7 +355,7 @@ export default function SendPage() {
                   <span className="muted">Click to final, seen in this browser</span>
                   <span className="mono accent">{current.finalSeenAt ? `${ms(current.finalSeenAt - current.clickedAt, 0)} ms` : "—"}</span>
                 </div>
-                <Link href={`/tx/${current.signature}`} className="btn" style={{ marginTop: 8 }}>
+                <Link href={`/tx/${current.sig}`} className="btn" style={{ marginTop: 8 }}>
                   Open the transaction
                 </Link>
               </div>
