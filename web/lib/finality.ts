@@ -1,7 +1,7 @@
 // Hear about finality the moment it happens, instead of asking over and over.
 // One Solana pubsub socket, opened when the page mounts so it is warm before the first click.
 
-import { PUBSUB_URL } from "./brand";
+import { endpoints, refreshEndpoints } from "./endpoints";
 
 type Done = { err: unknown };
 type Waiter = (d: Done) => void;
@@ -41,7 +41,7 @@ export class FinalityWatch {
   private closed = false;
   private retry: ReturnType<typeof setTimeout> | undefined;
 
-  constructor(private url = PUBSUB_URL) {
+  constructor() {
     this.open();
   }
 
@@ -49,7 +49,8 @@ export class FinalityWatch {
     if (this.closed) return;
     let ws: WebSocket;
     try {
-      ws = new WebSocket(this.url);
+      // Read the address each time: it changes if the pubsub tunnel was replaced.
+      ws = new WebSocket(endpoints.pubsub);
     } catch {
       return;
     }
@@ -82,7 +83,11 @@ export class FinalityWatch {
       this.ws = null;
       this.bySub.clear();
       this.byReq.clear();
-      if (!this.closed) this.retry = setTimeout(() => this.open(), 1500);
+      if (this.closed) return;
+      // Its own tunnel may have been replaced; switch at once if the site names a new one.
+      refreshEndpoints().then((moved) => {
+        if (!this.closed) this.retry = setTimeout(() => this.open(), moved ? 0 : 1500);
+      });
     };
   }
 

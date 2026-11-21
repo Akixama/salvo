@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { EVENTS_URL, RPC_URL } from "./brand";
+import { endpoints, refreshEndpoints } from "./endpoints";
 import { sharedWatch } from "./finality";
 
 export type Stats = {
@@ -133,7 +133,8 @@ class NetStore {
     // which keeps the feed live over a slow upload or tunnel. Older nodes ignore the flag.
     const z = typeof DecompressionStream !== "undefined";
     try {
-      ws = new WebSocket(z ? EVENTS_URL + (EVENTS_URL.includes("?") ? "&" : "?") + "z=1" : EVENTS_URL);
+      const url = endpoints.events;
+      ws = new WebSocket(z ? url + (url.includes("?") ? "&" : "?") + "z=1" : url);
     } catch {
       this.scheduleReconnect();
       return;
@@ -171,8 +172,11 @@ class NetStore {
   }
 
   private scheduleReconnect() {
-    this.retry = Math.min(this.retry + 1, 6);
-    setTimeout(() => this.connect(), 500 * 2 ** this.retry);
+    this.retry = Math.min(this.retry + 1, 4);
+    const wait = 500 * 2 ** this.retry;
+    // The tunnel may have been replaced while this page was open. If the site now names a
+    // different address, go there at once; otherwise back off and try the same one again.
+    refreshEndpoints().then((moved) => setTimeout(() => this.connect(), moved ? 0 : wait));
   }
 
   /** Server time in ms, corrected for the difference between this browser's clock and the node's. */
@@ -387,18 +391,34 @@ export function useNow(everyMs = 1000) {
   return now;
 }
 
+/**
+ * A request to the node. If the node's address no longer answers (a dropped tunnel: network
+ * error, or Cloudflare's 530 "tunnel not connected"), ask the site for the current address and,
+ * if it moved, send the request there instead.
+ */
+async function toNode(path: string, init: RequestInit): Promise<Response> {
+  try {
+    const r = await fetch(endpoints.rpc + path, init);
+    if (r.status !== 530 && r.status !== 502) return r;
+    return (await refreshEndpoints()) ? fetch(endpoints.rpc + path, init) : r;
+  } catch (e) {
+    if (await refreshEndpoints()) return fetch(endpoints.rpc + path, init);
+    throw e;
+  }
+}
+
 export async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
   // Only send a JSON content type with a body: on a GET it would make the browser ask the
   // (cross-origin) node for permission first, an extra round trip on every call.
   const headers = init?.body ? { "content-type": "application/json", ...(init?.headers || {}) } : init?.headers;
-  const r = await fetch(RPC_URL + path, { ...init, headers, cache: "no-store" });
+  const r = await toNode(path, { ...init, headers, cache: "no-store" });
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(body.error || `Request failed (${r.status})`);
   return body as T;
 }
 
 export async function rpc<T = any>(method: string, params: unknown[] = []): Promise<T> {
-  const r = await fetch(RPC_URL, {
+  const r = await toNode("", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
