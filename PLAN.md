@@ -48,9 +48,13 @@ The site always shows the measured number next to any target.
 - **Validators:** N = 10, two each in FRA, NYC, SGP, TYO, SAO. One tokio task each, with an inbox.
 - **Wire:** a bus that delivers every message after `latency(a, b) + jitter`, using real-world
   one-way delays between the cities. Optional loss and partitions for the Fault Lab.
-- **Consensus per instance:** Simplex. Leader of (k, v) is drawn from a seeded hash. It proposes at
-  `t = genesis + v·Δ + k·Δ/K` (or immediately if it is late), validators vote notarize, then
-  finalize; a timeout makes them vote nullify and skip the view. 2f+1 of N = 7 of 10.
+- **Consensus per instance:** Alpenglow's Votor rules (since 2026-11-25; Simplex before). Leader of
+  (k, v) is drawn from a seeded hash. It proposes at `t = genesis + v·Δ + k·Δ/K` (or immediately if
+  it is late). Each validator casts one initial vote: notarize, or skip on timeout (never skip after
+  notarizing). 80% notarize = final at once (fast lane); 60% notarize + 60% finalize = slow path;
+  60% skip = view skipped. SafeToNotar / SafeToSkip fallback votes keep split views live. Safe with
+  < 20% faulty, live with up to 40% offline. SALVO_CHECK_SAFETY=1 cross-checks every validator's
+  finalized blocks; all six Fault Lab scenarios ran with 0 violations, and faster than Simplex.
 - **Merge (Gatling thread):** per-instance queues by view, cursor walks (view, instance) in
   lexicographic order, gaps fill as skipped. Follows GATLING_SPEC §7 exactly.
 - **Mempool:** shared across the K instances on each validator, so one validator never puts the

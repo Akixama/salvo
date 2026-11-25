@@ -34,6 +34,7 @@ export function HowItWorks() {
   const t = f.threshold ?? "…";
   const c = f.colluders ?? "…";
   const q = f.quorum ?? "…";
+  const fq = f.fastQuorum ?? "…";
   const k = f.k ?? "…";
   const gap = f.gap != null ? Math.round(f.gap) : "…";
   const steps = [
@@ -50,7 +51,7 @@ export function HowItWorks() {
     {
       n: "03",
       title: "Vote",
-      body: `Validators vote on every block. Once ${q} of the ${n} agree, the block is accepted. If a block maker goes quiet, its turn is skipped and the others keep going.`,
+      body: `Validators vote on every block. If ${fq} of the ${n} agree, it's final after one round of votes. If only ${q} do, a second round makes it final. If a block maker goes quiet, its turn is skipped and the others keep going.`,
     },
     {
       n: "04",
@@ -85,7 +86,7 @@ export function RealTable() {
   const f = useFacts();
   const n = f.n ?? "…";
   const rows: [string, string][] = [
-    ["Voting", `Real. Each of the ${n} validators has its own key and signs its votes. ${f.quorum ?? "…"} votes are needed to accept a block.`],
+    ["Voting", `Real. Each of the ${n} validators has its own key and signs its votes. ${f.fastQuorum ?? "…"} votes make a block final in one round, or ${f.quorum ?? "…"} in two. Same rules as Alpenglow, Solana's next consensus.`],
     ["Ordering", "Real. Blocks are lined up using the exact rule from the Gatling paper."],
     ["Running trades", "Real. Solana's own engine runs your trades, fees and programs."],
     [

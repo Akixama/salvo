@@ -579,9 +579,13 @@ fn handle_obs(
             }
             st.push_event(json!({ "type": "cell", "s": "x", "i": instance, "v": view, "t": at_us }));
         }
-        ObsEvent::Finalized { blocks, at_us } => {
+        ObsEvent::Finalized { blocks, at_us, fast } => {
             {
                 let mut st = state.write();
+                st.stats.fast_finals.push_back(fast);
+                if st.stats.fast_finals.len() > 2000 {
+                    st.stats.fast_finals.pop_front();
+                }
                 for b in &blocks {
                     if let Some(s) = st.instances.get_mut(b.instance as usize) {
                         s.finalized_view = s.finalized_view.max(b.view);

@@ -28,6 +28,10 @@ export type Stats = {
   nowUs: number;
   live: boolean;
   quorum: number;
+  /** Notarize votes that finalize a block in one round (Alpenglow's fast lane). */
+  fastQuorum?: number;
+  /** Share of recent finalizations the fast lane got to first, 0 to 1. */
+  fastShare?: number | null;
   sealThreshold: number;
 };
 

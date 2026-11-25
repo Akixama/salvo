@@ -1,10 +1,21 @@
 //! One node of the net: a validator, or the observer that the gateway reads from.
 //!
-//! Each node runs K Simplex instances side by side. In instance k, the leader of view v
+//! Each node runs K consensus instances side by side. In instance k, the leader of view v
 //! proposes at `genesis + v·Δ + k·Δ/K`, so across instances a proposal goes out every Δ/K.
-//! Validators vote notarize on a valid proposal, and once a block is notarized they vote
-//! finalize (unless they already timed out in that view). A view whose leader is silent or
-//! late times out: validators vote nullify and move on. 2f+1 matching votes make a certificate.
+//!
+//! Voting follows Alpenglow's Votor (Solana's next consensus), per instance:
+//! - Each validator casts one initial vote per view: notarize a valid proposal, or nullify
+//!   (skip) if its timer runs out first. A validator that voted notarize does not skip on
+//!   timeout; that is what makes the fast lane safe.
+//! - 80% notarize votes for a block finalize it at once (fast lane, one round).
+//! - 60% notarize votes notarize it; validators that voted for it then vote finalize, unless
+//!   they cast a skip or fallback vote in that view; 60% finalize votes finalize it (slow lane).
+//! - 60% nullify (+ nullify-fallback) votes skip the view.
+//! - Fallbacks keep the net live when a view splits: SafeToNotar lets a validator back a block
+//!   that already has 40% (or 20% with 60% notarize+skip); SafeToSkip lets a notarize voter skip
+//!   once skip votes plus votes for other blocks reach 40%. Notarize + notarize-fallback votes at
+//!   60% make a fallback notarization, which later blocks can build on.
+//! Safe while fewer than 20% of validators are faulty; live with up to 40% offline.
 
 use crate::bus::Bus;
 use crate::types::*;
@@ -30,9 +41,24 @@ pub struct Params {
 }
 
 impl Params {
+    /// At least `p` percent of the validators, rounded up.
+    fn pct(&self, p: usize) -> u32 {
+        ((self.n * p).div_ceil(100)) as u32
+    }
+    /// 60%: notarize, skip and (slow) finalize certificates.
     pub fn quorum(&self) -> u32 {
-        let f = (self.n - 1) / 3;
-        (self.n - f) as u32
+        self.pct(60)
+    }
+    /// 80% notarize votes in the first round finalize a block at once (the fast lane).
+    pub fn fast_quorum(&self) -> u32 {
+        self.pct(80)
+    }
+    /// The 40% and 20% marks of Alpenglow's SafeToNotar and SafeToSkip rules.
+    fn pct40(&self) -> u32 {
+        self.pct(40)
+    }
+    fn pct20(&self) -> u32 {
+        self.pct(20)
     }
     pub fn gap_ms(&self) -> f64 {
         self.delta_ms as f64 / self.k as f64
@@ -77,8 +103,9 @@ pub enum ObsEvent {
     Proposed { block: Arc<Block>, seen_us: u64 },
     Notarized { instance: u16, view: u64, digest: Digest, at_us: u64 },
     Nullified { instance: u16, view: u64, at_us: u64 },
-    /// Finalized blocks of one instance, oldest first.
-    Finalized { blocks: Vec<Arc<Block>>, at_us: u64 },
+    /// Finalized blocks of one instance, oldest first. `fast`: the tip was finalized by the
+    /// fast lane (80% notarize votes) rather than by finalize votes.
+    Finalized { blocks: Vec<Arc<Block>>, at_us: u64, fast: bool },
     Views { views: Vec<u64> },
     Reveal { id: Digest, index: u16, share: [u8; 32], at_us: u64 },
 }
@@ -86,6 +113,31 @@ pub enum ObsEvent {
 pub enum Role {
     Validator(SigningKey),
     Observer(UnboundedSender<ObsEvent>),
+}
+
+/// Safety checks. Every node counts a violation if a block it finalizes does not extend its own
+/// finalized chain. With SALVO_CHECK_SAFETY=1 (for tests: it keeps every finalized block in
+/// memory) all nodes also record what they finalized, and two nodes finalizing different blocks
+/// at the same height of the same instance counts too. Both must stay at zero.
+pub static SAFETY_VIOLATIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static AGREEMENT: std::sync::OnceLock<Option<parking_lot::Mutex<HashMap<(u64, u16, u64), Digest>>>> = std::sync::OnceLock::new();
+
+fn violation(what: String) {
+    SAFETY_VIOLATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    tracing::error!("SAFETY VIOLATION: {what}");
+}
+
+fn check_agreement(net: u64, b: &Block) {
+    let map = AGREEMENT.get_or_init(|| std::env::var("SALVO_CHECK_SAFETY").ok().filter(|v| v == "1").map(|_| parking_lot::Mutex::new(HashMap::new())));
+    let Some(map) = map else { return };
+    let mut m = map.lock();
+    match m.get(&(net, b.instance, b.height)) {
+        Some(d) if *d != b.digest => violation(format!("instance {} height {}: two different blocks finalized", b.instance, b.height)),
+        Some(_) => {}
+        None => {
+            m.insert((net, b.instance, b.height), b.digest);
+        }
+    }
 }
 
 pub fn tx_id(bytes: &[u8]) -> Digest {
@@ -100,16 +152,26 @@ struct Inst {
     rebroadcast_at: Option<Instant>,
     blocks: HashMap<Digest, Arc<Block>>,
     proposals: HashMap<u64, Arc<Block>>,
-    notar_votes: HashMap<(u64, Digest), u64>,
+    /// Voter bitsets. Ordered so one view's blocks can be read together.
+    notar_votes: BTreeMap<(u64, Digest), u64>,
+    notar_fb_votes: HashMap<(u64, Digest), u64>,
     final_votes: HashMap<(u64, Digest), u64>,
     null_votes: HashMap<u64, u64>,
+    null_fb_votes: HashMap<u64, u64>,
+    /// Views with a notarization of either kind (60% notarize, or 60% notarize + fallback):
+    /// what later blocks may build on.
     notarized: BTreeMap<u64, Digest>,
+    /// Views with a plain 60% notarize certificate, which is what finalize votes need.
+    notarized_plain: BTreeSet<u64>,
     nullified: BTreeSet<u64>,
+    /// Views where this validator skipped or cast a fallback vote. It does not vote finalize
+    /// in those (Alpenglow's BadWindow).
+    bad_window: BTreeSet<u64>,
     my_votes: BTreeMap<(u64, u8), Arc<Vote>>,
     finalized_view: u64,
     finalized_tip: Digest,
     finalized_height: u64,
-    pending_final: Option<(u64, Digest)>,
+    pending_final: Option<(u64, Digest, bool)>,
     requested: HashMap<Digest, Instant>,
 }
 
@@ -123,11 +185,15 @@ impl Inst {
             rebroadcast_at: None,
             blocks: HashMap::new(),
             proposals: HashMap::new(),
-            notar_votes: HashMap::new(),
+            notar_votes: BTreeMap::new(),
+            notar_fb_votes: HashMap::new(),
             final_votes: HashMap::new(),
             null_votes: HashMap::new(),
+            null_fb_votes: HashMap::new(),
             notarized: BTreeMap::new(),
+            notarized_plain: BTreeSet::new(),
             nullified: BTreeSet::new(),
+            bad_window: BTreeSet::new(),
             my_votes: BTreeMap::new(),
             finalized_view: 0,
             finalized_tip: GENESIS,
@@ -139,6 +205,21 @@ impl Inst {
 
     fn voted(&self, view: u64, kind: VoteKind) -> bool {
         self.my_votes.contains_key(&(view, kind as u8))
+    }
+
+    /// This validator's initial vote in `view` is in (notarize or skip).
+    fn voted_initial(&self, view: u64) -> bool {
+        self.voted(view, VoteKind::Notarize) || self.voted(view, VoteKind::Nullify)
+    }
+
+    /// Whether `view` has a certificate that lets the instance move past it.
+    fn view_done(&self, view: u64) -> bool {
+        self.notarized.contains_key(&view) || self.nullified.contains(&view)
+    }
+
+    /// Notarize votes in `view`, one entry per block: (digest, voters).
+    fn notar_in(&self, view: u64) -> impl Iterator<Item = (Digest, u64)> + '_ {
+        self.notar_votes.range((view, [0u8; 32])..=(view, [0xffu8; 32])).map(|((_, d), b)| (*d, *b))
     }
 
     /// The block a leader of `view` should extend: the notarized block of the highest view below
@@ -280,7 +361,7 @@ impl Node {
             if let Some(p) = inst.propose_at {
                 d = d.min(p);
             }
-            if !inst.voted(inst.view, VoteKind::Nullify) && !inst.notarized.contains_key(&inst.view) {
+            if inst.rebroadcast_at.is_none() && !inst.view_done(inst.view) {
                 d = d.min(inst.timeout_at);
             }
             if let Some(r) = inst.rebroadcast_at {
@@ -304,10 +385,15 @@ impl Node {
             }
             let inst = &self.insts[k];
             let view = inst.view;
-            if now >= inst.timeout_at && !inst.voted(view, VoteKind::Nullify) && !inst.notarized.contains_key(&view) {
-                self.cast(k, view, VoteKind::Nullify, GENESIS);
+            if now >= inst.timeout_at && inst.rebroadcast_at.is_none() && !inst.view_done(view) {
+                // Out of time. Skip only if I have not voted yet: a validator that voted for a
+                // block never skips on a timer (the fallback rules decide that). Either way,
+                // start sending my votes again while the view is stuck.
                 let t = self.shared.params.timeout_ms;
                 self.insts[k].rebroadcast_at = Some(now + Duration::from_millis(t));
+                if !self.insts[k].voted_initial(view) {
+                    self.cast(k, view, VoteKind::Nullify, GENESIS);
+                }
             }
             if let Some(r) = self.insts[k].rebroadcast_at {
                 if now >= r {
@@ -339,7 +425,7 @@ impl Node {
         for v in votes {
             self.shared.bus.broadcast(self.id, Msg::Vote(v));
         }
-        if let Some((_, d)) = self.insts[k].pending_final {
+        if let Some((_, d, _)) = self.insts[k].pending_final {
             self.request_missing(k, d);
         }
     }
@@ -393,6 +479,9 @@ impl Node {
         }
         let vote = Arc::new(Vote::sign(key, self.id, k as u16, view, kind, digest));
         self.insts[k].my_votes.insert((view, kind as u8), vote.clone());
+        if matches!(kind, VoteKind::Nullify | VoteKind::NotarizeFallback | VoteKind::NullifyFallback) {
+            self.insts[k].bad_window.insert(view);
+        }
         self.shared.bus.broadcast(self.id, Msg::Vote(vote.clone()));
         self.on_vote(&vote);
     }
@@ -403,7 +492,7 @@ impl Node {
         }
         let inst = &self.insts[k];
         let view = inst.view;
-        if inst.voted(view, VoteKind::Notarize) || inst.voted(view, VoteKind::Nullify) {
+        if inst.voted_initial(view) {
             return;
         }
         let Some(b) = inst.proposals.get(&view) else { return };
@@ -478,8 +567,8 @@ impl Node {
             self.mark_included(&b);
         }
         self.try_vote(k);
-        if let Some((v, d)) = self.insts[k].pending_final {
-            self.try_finalize(k, v, d);
+        if let Some((v, d, fast)) = self.insts[k].pending_final {
+            self.try_finalize(k, v, d, fast);
         }
         // A newly known block can be the parent a later proposal was waiting for.
         self.try_vote(k);
@@ -504,58 +593,129 @@ impl Node {
 
     fn on_vote(&mut self, v: &Vote) {
         let k = v.instance as usize;
-        let q = self.shared.params.quorum();
         let bit = 1u64 << v.voter;
         let inst = &mut self.insts[k];
         if v.view <= inst.finalized_view && v.kind != VoteKind::Finalize {
             return;
         }
+        let e = match v.kind {
+            VoteKind::Notarize => inst.notar_votes.entry((v.view, v.digest)).or_insert(0),
+            VoteKind::NotarizeFallback => inst.notar_fb_votes.entry((v.view, v.digest)).or_insert(0),
+            VoteKind::Nullify => inst.null_votes.entry(v.view).or_insert(0),
+            VoteKind::NullifyFallback => inst.null_fb_votes.entry(v.view).or_insert(0),
+            VoteKind::Finalize => inst.final_votes.entry((v.view, v.digest)).or_insert(0),
+        };
+        if *e & bit != 0 {
+            return;
+        }
+        *e |= bit;
         match v.kind {
-            VoteKind::Notarize => {
-                let e = inst.notar_votes.entry((v.view, v.digest)).or_insert(0);
-                if *e & bit != 0 {
-                    return;
-                }
-                *e |= bit;
-                if e.count_ones() == q && !inst.notarized.contains_key(&v.view) {
-                    self.on_notarized(k, v.view, v.digest);
-                }
-            }
-            VoteKind::Nullify => {
-                let e = inst.null_votes.entry(v.view).or_insert(0);
-                if *e & bit != 0 {
-                    return;
-                }
-                *e |= bit;
-                if e.count_ones() == q && !inst.nullified.contains(&v.view) {
-                    self.on_nullified(k, v.view);
-                }
-            }
             VoteKind::Finalize => {
-                let e = inst.final_votes.entry((v.view, v.digest)).or_insert(0);
-                if *e & bit != 0 {
-                    return;
+                let n = self.insts[k].final_votes[&(v.view, v.digest)].count_ones();
+                if n >= self.shared.params.quorum() {
+                    self.on_finalize_cert(k, v.view, v.digest, false);
                 }
-                *e |= bit;
-                if e.count_ones() == q {
-                    self.on_finalize_cert(k, v.view, v.digest);
-                }
+            }
+            VoteKind::Notarize | VoteKind::NotarizeFallback => {
+                self.check_notar(k, v.view, v.digest);
+                self.check_fallbacks(k, v.view);
+            }
+            VoteKind::Nullify | VoteKind::NullifyFallback => {
+                self.check_skip(k, v.view);
+                self.check_fallbacks(k, v.view);
             }
         }
     }
 
-    fn on_notarized(&mut self, k: usize, view: u64, digest: Digest) {
-        self.insts[k].notarized.insert(view, digest);
-        self.report(ObsEvent::Notarized { instance: k as u16, view, digest, at_us: now_us() });
-        if let Some(b) = self.insts[k].blocks.get(&digest).cloned() {
-            self.mark_included(&b);
-        } else {
-            self.request_block(k, digest);
+    /// Certificates for one block: plain notarization (60% notarize), fallback notarization
+    /// (60% notarize + notarize-fallback), and fast finalization (80% notarize).
+    fn check_notar(&mut self, k: usize, view: u64, digest: Digest) {
+        let p = &self.shared.params;
+        let (q, fast) = (p.quorum(), p.fast_quorum());
+        let inst = &self.insts[k];
+        let plain = inst.notar_votes.get(&(view, digest)).copied().unwrap_or(0);
+        let fb = inst.notar_fb_votes.get(&(view, digest)).copied().unwrap_or(0);
+        if plain.count_ones() >= q && !inst.notarized_plain.contains(&view) {
+            self.insts[k].notarized_plain.insert(view);
+            self.on_notarized(k, view, digest, true);
+        } else if (plain | fb).count_ones() >= q && !inst.notarized.contains_key(&view) {
+            self.on_notarized(k, view, digest, false);
         }
-        if view >= self.insts[k].view {
-            if !self.insts[k].voted(view, VoteKind::Nullify) {
+        if plain.count_ones() >= fast {
+            self.on_finalize_cert(k, view, digest, true);
+        }
+    }
+
+    fn check_skip(&mut self, k: usize, view: u64) {
+        let inst = &self.insts[k];
+        let skips = inst.null_votes.get(&view).copied().unwrap_or(0) | inst.null_fb_votes.get(&view).copied().unwrap_or(0);
+        if skips.count_ones() >= self.shared.params.quorum() && !inst.nullified.contains(&view) {
+            self.on_nullified(k, view);
+        }
+    }
+
+    /// Alpenglow's fallback votes, for a view this validator already cast its initial vote in.
+    /// They are what keep a split view from getting stuck now that notarize voters no longer
+    /// skip on a timer, and each is cast only when the votes already seen make it safe.
+    fn check_fallbacks(&mut self, k: usize, view: u64) {
+        if !self.is_validator() {
+            return;
+        }
+        let p = &self.shared.params;
+        let (q, p40, p20) = (p.quorum(), p.pct40(), p.pct20());
+        let inst = &self.insts[k];
+        // Only for a view I voted in that has no certificate yet: once it does, it is settled.
+        if view <= inst.finalized_view || !inst.voted_initial(view) || inst.view_done(view) {
+            return;
+        }
+        let mine = inst.my_votes.get(&(view, VoteKind::Notarize as u8)).map(|v| v.digest);
+        let skip = inst.null_votes.get(&view).copied().unwrap_or(0).count_ones();
+        let blocks: Vec<(Digest, u32)> = inst.notar_in(view).map(|(d, b)| (d, b.count_ones())).collect();
+
+        // SafeToNotar: back a block I did not vote for once it has 40% of the notarize votes,
+        // or 20% with notarize + skip votes together at 60%.
+        if !inst.voted(view, VoteKind::NotarizeFallback) {
+            let pick = blocks.iter().find(|(d, n)| Some(*d) != mine && (*n >= p40 || (skip + n >= q && *n >= p20)));
+            if let Some(&(d, _)) = pick {
+                self.cast(k, view, VoteKind::NotarizeFallback, d);
+                if !self.insts[k].blocks.contains_key(&d) {
+                    self.request_block(k, d);
+                }
+            }
+        }
+
+        // SafeToSkip: I voted for a block, and skip votes plus votes for other blocks reach 40%,
+        // so no block in this view can reach the fast lane any more.
+        let inst = &self.insts[k];
+        if mine.is_some() && !inst.voted(view, VoteKind::NullifyFallback) {
+            let total: u32 = blocks.iter().map(|(_, n)| n).sum();
+            let top = blocks.iter().map(|(_, n)| *n).max().unwrap_or(0);
+            if skip + total - top >= p40 {
+                self.cast(k, view, VoteKind::NullifyFallback, GENESIS);
+            }
+        }
+    }
+
+    fn on_notarized(&mut self, k: usize, view: u64, digest: Digest, plain: bool) {
+        if !self.insts[k].notarized.contains_key(&view) {
+            self.insts[k].notarized.insert(view, digest);
+            self.report(ObsEvent::Notarized { instance: k as u16, view, digest, at_us: now_us() });
+            if let Some(b) = self.insts[k].blocks.get(&digest).cloned() {
+                self.mark_included(&b);
+            } else {
+                self.request_block(k, digest);
+            }
+        }
+        // Finalize vote: only for the block I voted notarize for, on a plain notarization, and
+        // only if I did not skip or cast a fallback vote in this view.
+        if plain {
+            let inst = &self.insts[k];
+            let voted_it = inst.my_votes.get(&(view, VoteKind::Notarize as u8)).map(|v| v.digest) == Some(digest);
+            if voted_it && !inst.bad_window.contains(&view) {
                 self.cast(k, view, VoteKind::Finalize, digest);
             }
+        }
+        if view >= self.insts[k].view {
             self.enter(k, view + 1);
         }
         self.try_vote(k);
@@ -570,23 +730,23 @@ impl Node {
         self.try_vote(k);
     }
 
-    fn on_finalize_cert(&mut self, k: usize, view: u64, digest: Digest) {
+    fn on_finalize_cert(&mut self, k: usize, view: u64, digest: Digest, fast: bool) {
         let inst = &mut self.insts[k];
         if view <= inst.finalized_view {
             return;
         }
-        if let Some((pv, _)) = inst.pending_final {
+        if let Some((pv, _, _)) = inst.pending_final {
             if pv > view {
                 return;
             }
         }
-        inst.pending_final = Some((view, digest));
-        self.try_finalize(k, view, digest);
+        inst.pending_final = Some((view, digest, fast));
+        self.try_finalize(k, view, digest, fast);
     }
 
     /// Finalize `digest` and every ancestor not yet finalized, oldest first. If a block in the
     /// chain is missing, ask for it and try again when it arrives.
-    fn try_finalize(&mut self, k: usize, view: u64, digest: Digest) {
+    fn try_finalize(&mut self, k: usize, view: u64, digest: Digest, fast: bool) {
         let inst = &self.insts[k];
         let mut chain = Vec::new();
         let mut cur = digest;
@@ -597,7 +757,10 @@ impl Node {
             match inst.blocks.get(&cur) {
                 Some(b) => {
                     if b.height <= inst.finalized_height {
-                        break;
+                        // Walked below my finalized height without meeting my finalized tip:
+                        // the new block is on another branch.
+                        violation(format!("node {} instance {k}: finalized view {view} does not extend its finalized chain", self.id));
+                        return;
                     }
                     chain.push(b.clone());
                     cur = b.parent;
@@ -616,9 +779,12 @@ impl Node {
         if let Some(last) = chain.last() {
             inst.finalized_height = last.height;
         }
+        for b in &chain {
+            check_agreement(self.shared.genesis_us, b);
+        }
         if !chain.is_empty() {
             self.reveal(&chain);
-            self.report(ObsEvent::Finalized { blocks: chain, at_us: now_us() });
+            self.report(ObsEvent::Finalized { blocks: chain, at_us: now_us(), fast });
         }
     }
 
@@ -666,11 +832,15 @@ impl Node {
             let hkeep = inst.finalized_height.saturating_sub(64);
             inst.blocks.retain(|_, b| b.height >= hkeep || b.view >= keep_from);
             inst.proposals.retain(|v, _| *v >= keep_from);
-            inst.notar_votes.retain(|(v, _), _| *v >= keep_from);
+            inst.notar_votes = inst.notar_votes.split_off(&(keep_from, [0u8; 32]));
+            inst.notar_fb_votes.retain(|(v, _), _| *v >= keep_from);
             inst.final_votes.retain(|(v, _), _| *v >= keep_from);
             inst.null_votes.retain(|v, _| *v >= keep_from);
+            inst.null_fb_votes.retain(|v, _| *v >= keep_from);
             inst.notarized = inst.notarized.split_off(&keep_from);
+            inst.notarized_plain = inst.notarized_plain.split_off(&keep_from);
             inst.nullified = inst.nullified.split_off(&keep_from);
+            inst.bad_window = inst.bad_window.split_off(&keep_from);
             inst.my_votes = inst.my_votes.split_off(&(keep_from, 0));
             let now = Instant::now();
             inst.requested.retain(|_, t| now.duration_since(*t) < Duration::from_secs(10));

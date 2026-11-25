@@ -13,6 +13,9 @@ export function useFacts() {
     delta: s?.deltaMs ?? null,
     gap: s?.targetGapMs ?? null,
     quorum: s?.quorum ?? null,
+    fastQuorum: s?.fastQuorum ?? null,
+    /** Percent of recent blocks finalized by the fast lane. */
+    fastShare: s?.fastShare != null ? s.fastShare * 100 : null,
     threshold: t,
     colluders: t != null ? t - 1 : null,
     timeout: s?.timeoutMs ?? null,

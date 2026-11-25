@@ -72,11 +72,16 @@ impl Block {
     }
 }
 
+/// Votes follow Alpenglow's Votor rules. Notarize or Nullify (skip) is a validator's one initial
+/// vote in a view. The two fallback votes may be cast later, only once the votes already seen
+/// prove it is safe (SafeToNotar and SafeToSkip in the Alpenglow paper).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum VoteKind {
     Notarize,
     Finalize,
     Nullify,
+    NotarizeFallback,
+    NullifyFallback,
 }
 
 #[derive(Clone, Debug)]

@@ -135,6 +135,8 @@ pub struct Stats {
     pub failed_txs: u64,
     pub duplicates: u64,
     pub skipped_views: u64,
+    /// The last 2000 finalizations: true if the fast lane (80% notarize) got there first.
+    pub fast_finals: VecDeque<bool>,
     pub sealed_submitted: u64,
     pub sealed_revealed: u64,
     /// Merged to revealed, for sealed transactions, ms.
@@ -217,6 +219,7 @@ impl NetState {
                 failed_txs: 0,
                 duplicates: 0,
                 skipped_views: 0,
+                fast_finals: VecDeque::new(),
                 sealed_submitted: 0,
                 sealed_revealed: 0,
                 reveal_ms: Window::new(500),
@@ -331,7 +334,11 @@ impl NetState {
             "deltaMs": self.delta_ms,
             "targetGapMs": self.delta_ms as f64 / self.k as f64,
             "timeoutMs": self.timeout_ms,
-            "quorum": self.n - (self.n - 1) / 3,
+            // Alpenglow thresholds: 60% for certificates, 80% for the fast lane, rounded up.
+            "quorum": (self.n * 60).div_ceil(100),
+            "fastQuorum": (self.n * 80).div_ceil(100),
+            "safetyViolations": crate::consensus::SAFETY_VIOLATIONS.load(std::sync::atomic::Ordering::Relaxed),
+            "fastShare": if s.fast_finals.is_empty() { Value::Null } else { json!(s.fast_finals.iter().filter(|f| **f).count() as f64 / s.fast_finals.len() as f64) },
             "sealThreshold": (self.n - 1) / 3 + 1,
             "slot": s.merged,
             "transactions": s.txs,

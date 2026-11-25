@@ -169,7 +169,7 @@ export default function NetPage() {
         <BigNumbers
           items={[
             { v: s?.gapMs.p50 != null ? <CountUp to={s.gapMs.p50} decimals={1} duration={0.6} trigger="load" /> : "—", unit: "ms", label: `between blocks · target ${s ? ms(s.targetGapMs, 1) : "—"} ms` },
-            { v: s?.blockFinalityMs.p50 != null ? <CountUp to={Math.round(s.blockFinalityMs.p50)} duration={0.6} trigger="load" /> : "—", unit: "ms", label: `block to final · p90 ${s ? ms(s.blockFinalityMs.p90, 0) : "—"} ms` },
+            { v: s?.blockFinalityMs.p50 != null ? <CountUp to={Math.round(s.blockFinalityMs.p50)} duration={0.6} trigger="load" /> : "—", unit: "ms", label: `block to final · p90 ${s ? ms(s.blockFinalityMs.p90, 0) : "—"} ms${s?.fastShare != null ? ` · ${Math.round(s.fastShare * 100)}% fast lane` : ""}` },
             { v: s?.txFinalityMs.p50 != null ? <CountUp to={Math.round(s.txFinalityMs.p50)} duration={0.6} trigger="load" /> : "—", unit: "ms", label: "transaction, sent to run" },
             { v: s ? <CountUp to={Math.round(s.blocksPerSecond)} duration={0.6} trigger="load" /> : "—", label: `blocks a second · ${s ? int(s.skippedViews) : "—"} views skipped` },
           ]}

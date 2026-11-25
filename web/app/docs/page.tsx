@@ -44,7 +44,11 @@ const FAQ: [string, React.ReactNode][] = [
   ],
   [
     "Is finality also 10 ms?",
-    "No. Each block still needs two rounds of votes that cross oceans, so finality is around a quarter of a second. The Net page shows the measured median and p90. What gets faster is how often a block can be proposed, which is what cuts the wait to get into one.",
+    "No. Votes still have to cross oceans. Most blocks are final after one round of votes (the fast lane, when 80% of validators agree), so finality is around a fifth of a second; the rest take a second round. The Net page shows the measured median and p90. What gets faster is how often a block can be proposed, which is what cuts the wait to get into one.",
+  ],
+  [
+    "How many bad validators can it handle?",
+    "It stays safe while fewer than 20% of validators misbehave, and keeps going with up to 40% offline. That's the trade the one-round fast lane needs: classic two-round voting survives up to a third misbehaving, but is slower. Solana makes the same trade with Alpenglow. The Fault Lab shows crashes, cut-off regions and lost messages live.",
   ],
   [
     "What happens if a leader is down?",
@@ -142,11 +146,11 @@ console.log(await connection.getBalance(me.publicKey));`;
           <div className="kv">
             <div>Validators</div>
             <div>
-              <Fact k="n" /> spread across Frankfurt, London, New York, Tokyo and Singapore (simulated). <Fact k="quorum" /> matching votes make a certificate, and no single region holds that many, so every certificate crosses an ocean.
+              <Fact k="n" /> spread across Frankfurt, London, New York, Tokyo and Singapore (simulated). <Fact k="fastQuorum" /> notarize votes finalize a block in one round (the fast lane); otherwise <Fact k="quorum" /> notarize votes and then <Fact k="quorum" /> finalize votes do it in two. No single region holds that many, so every certificate crosses an ocean.
             </div>
             <div>Instances</div>
             <div>
-              <Fact k="k" /> Simplex instances. Instance k proposes at genesis + v × <Fact k="delta" /> ms + k × <Fact k="gap" /> ms.
+              <Fact k="k" /> consensus instances, each voting by Alpenglow's rules. Instance k proposes at genesis + v × <Fact k="delta" /> ms + k × <Fact k="gap" /> ms.
             </div>
             <div>Timeout</div>
             <div>

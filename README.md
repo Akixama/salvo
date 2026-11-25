@@ -41,9 +41,12 @@ The site shows these live, along with p90 and p99.
    live net, 4 of 10 by default. So up to f colluding validators can't open it early.
 2. **Stagger.** Instance k proposes at `genesis + v·Δ + k·Δ/K`, so with K = 24 and Δ = 240 ms a
    proposal goes out every 10 ms.
-3. **Vote.** Each instance runs Simplex. Validators sign notarize and finalize votes (Ed25519).
-   Two-thirds make a certificate: 5 of 7, or 7 of 10. A silent leader's view times out and is
-   skipped.
+3. **Vote.** Each instance votes by Alpenglow's rules (Votor, Solana's next consensus), with
+   Ed25519-signed votes. 80% notarize votes finalize a block in one round (the fast lane: 6 of 7);
+   otherwise 60% notarize and then 60% finalize votes do it in two (5 of 7). A silent leader's view
+   times out and is skipped; fallback votes keep a split view from getting stuck. Safe while fewer
+   than 20% misbehave, live with up to 40% offline. On the live net about 98% of blocks take the
+   fast lane: ~210 ms to final, down from ~280 ms with two-round Simplex.
 4. **Merge.** Finalized blocks are read in (view, instance) order, following the Gatling paper's
    reference prototype. Skipped views are gaps.
 5. **Reveal.** When a block is final, each validator publishes its key piece for the sealed

@@ -30,8 +30,8 @@ pub const SCENARIOS: &[Scenario] = &[
     Scenario {
         id: "three-down",
         title: "Three validators crash",
-        fault: "Validators 1, 4 and 7 stop sending and receiving for 6 seconds. That is f = 3 of 10, the most the net is built to survive.",
-        expect: "Views those three were due to lead time out and are skipped. The other instances keep landing blocks, so the merged log keeps growing.",
+        fault: "Validators 1, 4 and 7 stop sending and receiving for 6 seconds. That is 3 of 10; the net is built to keep going with up to 4 of 10 offline.",
+        expect: "Views those three were due to lead time out and are skipped. The 7 left still give blocks the 6 votes they need, though not the 8 the fast lane needs, so blocks take the two-round path until the three return.",
     },
     Scenario {
         id: "slow-leader",
@@ -49,13 +49,13 @@ pub const SCENARIOS: &[Scenario] = &[
         id: "london-cut",
         title: "London cut off",
         fault: "The two London validators can talk to each other but to no one else for 6 seconds.",
-        expect: "8 of 10 is still above the 7 needed, so the net keeps going. London's views are skipped.",
+        expect: "8 of 10 is still above the 6 needed, so the net keeps going. London's views are skipped.",
     },
     Scenario {
         id: "ocean-cut",
         title: "Asia is cut off",
         fault: "The four validators in Tokyo and Singapore are cut off from Europe and America for 6 seconds.",
-        expect: "Neither side has the 7 votes a certificate needs, so the net stops finalizing. It cannot fork. When the link returns, it picks up again on its own.",
+        expect: "The six in Europe and America are 60%, exactly the 6 votes a certificate needs, so they keep finalizing and Asia's views are skipped. The four in Asia can never reach 6, so the net cannot fork. When the link returns, Asia catches up on its own.",
     },
 ];
 
@@ -245,9 +245,12 @@ impl Lab {
             if let Some(a) = after["blocks"].as_u64() {
                 evidence.push(format!("{} blocks landed in the {} seconds after the fault was switched off.", a, RECOVER_S));
             }
-            let verdict = match sc.id {
-                "ocean-cut" => if during_blocks <= 3 && after["blocks"].as_u64().unwrap_or(0) > 0 { "Stopped while split, resumed on its own" } else { "Kept finalizing" },
-                _ => if during_blocks > 0 { "Kept finalizing" } else { "Stopped" },
+            let verdict = if during_blocks > 0 {
+                "Kept finalizing"
+            } else if after["blocks"].as_u64().unwrap_or(0) > 0 {
+                "Stopped while split, resumed on its own"
+            } else {
+                "Stopped"
             };
             json!({
                 "status": "done",
